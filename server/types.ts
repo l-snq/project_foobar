@@ -34,10 +34,17 @@ export type ClientMessage =
   | { type: "reload" }
   | { type: "chat"; text: string }
 
+export interface ScoreEntry {
+  id: ClientId;
+  name: string;
+  kills: number;
+  deaths: number;
+}
+
 // Server → Client
 export type ServerMessage =
   | { type: "handshake"; yourId: ClientId; tick: number }
-  | { type: "snapshot"; tick: number; players: PlayerState[]; projectiles: ProjectileState[] }
+  | { type: "snapshot"; tick: number; players: PlayerState[]; projectiles: ProjectileState[]; scores: ScoreEntry[] }
   | { type: "playerLeft"; id: ClientId }
   | { type: "hit"; targetId: ClientId; health: number }
   | { type: "died"; targetId: ClientId }

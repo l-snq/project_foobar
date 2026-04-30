@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon } from "../server/types";
+import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon, ScoreEntry } from "../server/types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "ws://localhost:3001";
 const LERP_FACTOR = 0.2;
@@ -103,6 +103,8 @@ export default function GameCanvas({ playerName }: Props) {
   const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
   const [ammo, setAmmo] = useState(8);
   const [isReloading, setIsReloading] = useState(false);
+  const [scores, setScores] = useState<ScoreEntry[]>([]);
+  const [showScoreboard, setShowScoreboard] = useState(false);
   const chatIdRef = useRef(0);
   const chatInputRef = useRef<HTMLInputElement>(null);
 
@@ -117,6 +119,7 @@ export default function GameCanvas({ playerName }: Props) {
   // Refs that the Three.js loop reads — avoids stale closures
   const weaponRef = useRef<Weapon>("none");
   const isReloadingRef = useRef(false);
+  const myIdRef = useRef<string | null>(null);
 
   const sendChat = useCallback((text: string) => {
     const ws = wsRef.current;
@@ -187,6 +190,11 @@ export default function GameCanvas({ playerName }: Props) {
     // ---- Input ----
     const keys = { w: false, a: false, s: false, d: false };
     function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Tab") {
+        e.preventDefault();
+        setShowScoreboard(true);
+        return;
+      }
       if (e.key === "Enter") {
         setChatOpen((prev) => {
           if (!prev) setTimeout(() => chatInputRef.current?.focus(), 0);
@@ -216,6 +224,10 @@ export default function GameCanvas({ playerName }: Props) {
       }
     }
     function onKeyUp(e: KeyboardEvent) {
+      if (e.key === "Tab") {
+        setShowScoreboard(false);
+        return;
+      }
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
       const k = e.key.toLowerCase();
       if (k in keys) (keys as Record<string, boolean>)[k] = false;
@@ -532,6 +544,7 @@ export default function GameCanvas({ playerName }: Props) {
 
       if (msg.type === "handshake") {
         myId = msg.yourId;
+        myIdRef.current = msg.yourId;
       }
 
       if (msg.type === "snapshot") {
@@ -557,6 +570,7 @@ export default function GameCanvas({ playerName }: Props) {
           if (!seen.has(id)) removeRemote(id);
         }
         syncProjectiles(msg.projectiles);
+        setScores(msg.scores);
       }
 
       if (msg.type === "playerLeft") removeRemote(msg.id);
@@ -866,6 +880,36 @@ export default function GameCanvas({ playerName }: Props) {
       {/* Hit flash */}
       {showHitFlash && (
         <div className="absolute inset-0 pointer-events-none bg-red-600/30 animate-pulse" />
+      )}
+
+      {/* Scoreboard — hold Tab */}
+      {showScoreboard && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="bg-black/80 rounded-lg px-6 py-4 min-w-72">
+            <h2 className="text-white text-center text-lg font-bold mb-3 tracking-widest uppercase">Scoreboard</h2>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-400 border-b border-gray-600">
+                  <th className="text-left pb-1 font-semibold">Player</th>
+                  <th className="text-center pb-1 font-semibold w-16">Kills</th>
+                  <th className="text-center pb-1 font-semibold w-16">Deaths</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...scores]
+                  .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
+                  .map((s) => (
+                    <tr key={s.id} className={s.id === myIdRef.current ? "text-blue-300" : "text-white"}>
+                      <td className="py-0.5">{s.name}</td>
+                      <td className="text-center text-green-400 font-bold">{s.kills}</td>
+                      <td className="text-center text-red-400">{s.deaths}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+            <p className="text-gray-500 text-xs text-center mt-3">Hold Tab to view</p>
+          </div>
+        </div>
       )}
 
       {/* Death screen */}

@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import type { WebSocket } from "ws";
 import type {
-  ClientId, PlayerState, ProjectileState,
+  ClientId, PlayerState, ProjectileState, ScoreEntry,
   ServerMessage, ClientMessage, Weapon,
 } from "./types";
 
@@ -43,6 +43,7 @@ interface LiveProjectile extends ProjectileState {
 export class Room {
   private clients = new Map<ClientId, Client>();
   private states = new Map<ClientId, PlayerState>();
+  private scores = new Map<ClientId, ScoreEntry>();
   private projectiles = new Map<string, LiveProjectile>();
   private tick = 0;
   private interval: ReturnType<typeof setInterval> | null = null;
@@ -64,7 +65,7 @@ export class Room {
   remove(id: ClientId) {
     this.clients.delete(id);
     this.states.delete(id);
-    // Remove any projectiles owned by this client
+    this.scores.delete(id);
     for (const [pid, p] of this.projectiles) {
       if (p.ownerId === id) this.projectiles.delete(pid);
     }
@@ -86,6 +87,7 @@ export class Room {
         id, name, x: 0, y: 0, z: 0, rotY: 0,
         moving: false, weapon: "none", health: MAX_HEALTH, dancing: false, ammo: MAX_AMMO, reloading: false,
       });
+      this.scores.set(id, { id, name, kills: 0, deaths: 0 });
       return;
     }
 
@@ -204,7 +206,12 @@ export class Room {
 
           if (tstate.health <= 0) {
             this.broadcast({ type: "died", targetId: tid });
-            // Respawn after 3 seconds
+
+            const victimScore = this.scores.get(tid);
+            if (victimScore) victimScore.deaths++;
+            const killerScore = this.scores.get(proj.ownerId);
+            if (killerScore) killerScore.kills++;
+
             setTimeout(() => {
               const s = this.states.get(tid);
               if (!s) return;
@@ -225,6 +232,7 @@ export class Room {
       projectiles: Array.from(this.projectiles.values()).map(({ id, ownerId, x, z, dirX, dirZ }) => ({
         id, ownerId, x, z, dirX, dirZ,
       })),
+      scores: Array.from(this.scores.values()),
     };
     this.broadcast(snapshot);
   }
