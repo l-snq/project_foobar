@@ -12,6 +12,7 @@ export interface PlayerState {
   moving: boolean;
   weapon: Weapon;
   health: number;
+  dancing: boolean;
 }
 
 export interface ProjectileState {
@@ -26,7 +27,7 @@ export interface ProjectileState {
 // Client → Server
 export type ClientMessage =
   | { type: "join"; name: string }
-  | { type: "input"; x: number; z: number; rotY: number; weapon: Weapon }
+  | { type: "input"; x: number; z: number; rotY: number; weapon: Weapon; dancing: boolean }
   | { type: "shoot"; dirX: number; dirZ: number }
   | { type: "chat"; text: string }
 

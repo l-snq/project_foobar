@@ -59,13 +59,15 @@ interface GltfTemplate {
 }
 
 interface RemotePlayer {
-  // We keep two model roots and swap visibility based on weapon
   rootUnarmed: THREE.Object3D;
   rootPistol: THREE.Object3D;
+  label: CSS2DObject;
   mixerUnarmed: THREE.AnimationMixer;
   mixerPistol: THREE.AnimationMixer;
   walkActionUnarmed: THREE.AnimationAction;
   walkActionPistol: THREE.AnimationAction;
+  danceAction: THREE.AnimationAction | null;
+  dancing: boolean;
   targetX: number;
   targetZ: number;
   targetRotY: number;
@@ -177,6 +179,17 @@ export default function GameCanvas({ playerName }: Props) {
         weaponRef.current = next;
         setWeapon(next);
       }
+      if (k === "r" && !isDancing && danceAction && walkUnarmed && mixerUnarmed) {
+        // Force unarmed model, then crossfade walk → dance
+        isDancing = true;
+        weaponRef.current = "none";
+        setWeapon("none");
+        walkUnarmed.setEffectiveWeight(0);
+        walkUnarmed.paused = true;
+        danceAction.reset();
+        danceAction.setEffectiveWeight(1);
+        danceAction.play();
+      }
     }
     function onKeyUp(e: KeyboardEvent) {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
@@ -232,6 +245,8 @@ export default function GameCanvas({ playerName }: Props) {
     let mixerPistol: THREE.AnimationMixer | null = null;
     let walkUnarmed: THREE.AnimationAction | null = null;
     let walkPistol: THREE.AnimationAction | null = null;
+    let danceAction: THREE.AnimationAction | null = null;
+    let isDancing = false;
     let characterRoot: THREE.Object3D | null = null; // points to whichever model is active
 
     let serverPos = new THREE.Vector3();
@@ -267,6 +282,25 @@ export default function GameCanvas({ playerName }: Props) {
         walkUnarmed.play();
         walkUnarmed.paused = true;
         walkUnarmed.setEffectiveWeight(0);
+      }
+      const danceClip = gltf.animations.find((a) => a.name === "dance");
+      if (danceClip && mixerUnarmed) {
+        danceAction = mixerUnarmed.clipAction(danceClip);
+        danceAction.setLoop(THREE.LoopOnce, 1);
+        danceAction.clampWhenFinished = true;
+        danceAction.setEffectiveWeight(0);
+        // Listen for the animation finishing so we can return to idle
+        mixerUnarmed.addEventListener("finished", (e) => {
+          if (e.action === danceAction) {
+            isDancing = false;
+            danceAction!.setEffectiveWeight(0);
+            danceAction!.stop();
+            if (walkUnarmed) {
+              walkUnarmed.paused = true;
+              walkUnarmed.setEffectiveWeight(0);
+            }
+          }
+        });
       }
 
       if (++loadedCount === 2) onBothLoaded();
@@ -326,19 +360,36 @@ export default function GameCanvas({ playerName }: Props) {
       const unarmed = makeRemoteModel(tplUnarmed, state.weapon !== "pistol");
       const pistol = makeRemoteModel(tplPistol, state.weapon === "pistol");
 
-      // Label only on unarmed root; we'll move it in applyRemoteState if needed.
-      // Simpler: add to a shared group. Instead, just add to unarmed and keep
-      // both roots at the same position so the label follows correctly.
       const label = makeNameLabel(state.name);
       unarmed.root.add(label);
+
+      // Set up dance on the unarmed mixer (only unarmed model has the clip)
+      let remoteDanceAction: THREE.AnimationAction | null = null;
+      const danceClip = tplUnarmed.animations.find((a) => a.name === "dance");
+      if (danceClip) {
+        remoteDanceAction = unarmed.mixer.clipAction(danceClip.clone());
+        remoteDanceAction.setLoop(THREE.LoopOnce, 1);
+        remoteDanceAction.clampWhenFinished = true;
+        remoteDanceAction.setEffectiveWeight(0);
+        const da = remoteDanceAction;
+        unarmed.mixer.addEventListener("finished", (e) => {
+          if (e.action === da) {
+            da.setEffectiveWeight(0);
+            da.stop();
+          }
+        });
+      }
 
       remotePlayers.set(id, {
         rootUnarmed: unarmed.root,
         rootPistol: pistol.root,
+        label,
         mixerUnarmed: unarmed.mixer,
         mixerPistol: pistol.mixer,
         walkActionUnarmed: unarmed.walkAction,
         walkActionPistol: pistol.walkAction,
+        danceAction: remoteDanceAction,
+        dancing: state.dancing,
         targetX: state.x,
         targetZ: state.z,
         targetRotY: state.rotY,
@@ -360,6 +411,7 @@ export default function GameCanvas({ playerName }: Props) {
       remote.moving = p.moving;
       remote.weapon = p.weapon;
       remote.health = p.health;
+      remote.dancing = p.dancing;
     }
 
     function removeRemote(id: string) {
@@ -367,6 +419,8 @@ export default function GameCanvas({ playerName }: Props) {
       if (remote) {
         remote.mixerUnarmed.stopAllAction();
         remote.mixerPistol.stopAllAction();
+        // Remove the label from its parent so CSS2DRenderer drops the DOM element
+        remote.rootUnarmed.remove(remote.label);
         scene.remove(remote.rootUnarmed);
         scene.remove(remote.rootPistol);
         remotePlayers.delete(id);
@@ -480,6 +534,7 @@ export default function GameCanvas({ playerName }: Props) {
       ws.send(JSON.stringify({
         type: "input", x: inputX, z: inputZ, rotY,
         weapon: weaponRef.current,
+        dancing: isDancing,
       } satisfies ClientMessage));
     }
 
@@ -557,19 +612,25 @@ export default function GameCanvas({ playerName }: Props) {
         inactive.rotation.copy(active.rotation);
       }
 
-      // Walk animation — drive whichever local model is active
+      // Walk / dance animation — drive whichever local model is active
       const isMoving = input.lengthSq() > 0;
-      const activeWalk = currentWeapon === "pistol" ? walkPistol : walkUnarmed;
-      const activeMixer = currentWeapon === "pistol" ? mixerPistol : mixerUnarmed;
-      if (activeWalk) {
-        activeWalk.paused = !isMoving;
-        activeWalk.setEffectiveWeight(isMoving ? 1 : 0);
+      if (isDancing) {
+        // Dance is playing — just tick the unarmed mixer, leave walk suppressed
+        if (mixerUnarmed) mixerUnarmed.update(dt);
+      } else {
+        const activeWalk = currentWeapon === "pistol" ? walkPistol : walkUnarmed;
+        const activeMixer = currentWeapon === "pistol" ? mixerPistol : mixerUnarmed;
+        if (activeWalk) {
+          activeWalk.paused = !isMoving;
+          activeWalk.setEffectiveWeight(isMoving ? 1 : 0);
+        }
+        if (activeMixer) activeMixer.update(dt);
       }
-      if (activeMixer) activeMixer.update(dt);
 
       // Remote players
       for (const remote of remotePlayers.values()) {
-        const isPistol = remote.weapon === "pistol";
+        // Dancing forces unarmed model
+        const isPistol = !remote.dancing && remote.weapon === "pistol";
         remote.rootUnarmed.visible = !isPistol;
         remote.rootPistol.visible = isPistol;
 
@@ -582,13 +643,30 @@ export default function GameCanvas({ playerName }: Props) {
         inactiveRoot.position.copy(activeRoot.position);
         inactiveRoot.rotation.copy(activeRoot.rotation);
 
-        const rWalk = isPistol ? remote.walkActionPistol : remote.walkActionUnarmed;
-        const rMixer = isPistol ? remote.mixerPistol : remote.mixerUnarmed;
-        if (rWalk) {
-          rWalk.paused = !remote.moving;
-          rWalk.setEffectiveWeight(remote.moving ? 1 : 0);
+        if (remote.dancing) {
+          // Kick off dance if not already running
+          if (remote.danceAction && remote.danceAction.weight === 0) {
+            remote.walkActionUnarmed.setEffectiveWeight(0);
+            remote.walkActionUnarmed.paused = true;
+            remote.danceAction.reset();
+            remote.danceAction.setEffectiveWeight(1);
+            remote.danceAction.play();
+          }
+          remote.mixerUnarmed.update(dt);
+        } else {
+          // Stop dance if it was playing and server says no longer dancing
+          if (remote.danceAction && remote.danceAction.weight > 0) {
+            remote.danceAction.setEffectiveWeight(0);
+            remote.danceAction.stop();
+          }
+          const rWalk = isPistol ? remote.walkActionPistol : remote.walkActionUnarmed;
+          const rMixer = isPistol ? remote.mixerPistol : remote.mixerUnarmed;
+          if (rWalk) {
+            rWalk.paused = !remote.moving;
+            rWalk.setEffectiveWeight(remote.moving ? 1 : 0);
+          }
+          rMixer.update(dt);
         }
-        rMixer.update(dt);
       }
 
       // Follow camera

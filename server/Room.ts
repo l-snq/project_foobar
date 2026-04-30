@@ -28,6 +28,7 @@ interface Client {
   inputZ: number;
   rotY: number;
   weapon: Weapon;
+  dancing: boolean;
   joined: boolean;
   lastShotAt: number;
 }
@@ -51,7 +52,7 @@ export class Room {
     this.clients.set(id, {
       id, ws, name: "Player",
       inputX: 0, inputZ: 0, rotY: 0,
-      weapon: "none", joined: false, lastShotAt: 0,
+      weapon: "none", dancing: false, joined: false, lastShotAt: 0,
     });
     const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick };
     ws.send(JSON.stringify(handshake));
@@ -80,7 +81,7 @@ export class Room {
       client.joined = true;
       this.states.set(id, {
         id, name, x: 0, y: 0, z: 0, rotY: 0,
-        moving: false, weapon: "none", health: MAX_HEALTH,
+        moving: false, weapon: "none", health: MAX_HEALTH, dancing: false,
       });
       return;
     }
@@ -93,6 +94,7 @@ export class Room {
       client.inputZ = len > 1 ? msg.z / len : msg.z;
       client.rotY = msg.rotY;
       client.weapon = msg.weapon;
+      client.dancing = msg.dancing;
     }
 
     if (msg.type === "shoot") {
@@ -142,6 +144,7 @@ export class Room {
       state.moving = moving;
       state.rotY = client.rotY;
       state.weapon = client.weapon;
+      state.dancing = client.dancing;
 
       if (moving) {
         state.x = Math.max(-BOUNDS, Math.min(BOUNDS, state.x + client.inputX * PLAYER_SPEED * dt));
