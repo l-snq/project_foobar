@@ -4,6 +4,12 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
+enum PlayerWeapon {
+	Pistol,
+	Rifle,
+	Smg,
+	Shotgun,
+}
 // ---------------------------------------------------------------------------
 // Ground grid
 function buildGround(): THREE.Group {
@@ -66,7 +72,7 @@ export default function GameCanvas() {
     scene.add(buildGround());
 
     // WASD input
-    const keys = { w: false, a: false, s: false, d: false };
+    const keys = { w: false, a: false, s: false, d: false};
     function onKeyDown(e: KeyboardEvent) {
       const k = e.key.toLowerCase();
       if (k in keys) (keys as Record<string, boolean>)[k] = true;
@@ -96,6 +102,9 @@ export default function GameCanvas() {
     let walkAction: THREE.AnimationAction | null = null;
     let characterRoot: THREE.Object3D | null = null;
 
+		let velocity = new THREE.Vector3();
+		const speed = 4;
+
     const loader = new GLTFLoader();
     loader.load("/lilguy.gltf", (gltf) => {
       const model = gltf.scene;
@@ -110,6 +119,7 @@ export default function GameCanvas() {
         // Start paused — will play only while WASD is held
         walkAction.play();
         walkAction.paused = true;
+				walkAction.setEffectiveWeight(0);
       }
     });
 
@@ -126,12 +136,42 @@ export default function GameCanvas() {
       const isMoving = keys.w || keys.a || keys.s || keys.d;
 
       // Drive walk animation only while moving
-      if (walkAction) {
-        walkAction.paused = !isMoving;
-      }
-      if (mixer) {
-        mixer.update(dt);
-      }
+			const input = new THREE.Vector3(
+				(keys.d ? 1 : 0) - (keys.a ? 1 : 0),
+				0,
+				(keys.s ? 1 : 0) - (keys.w ? 1 : 0),
+			)
+
+			if (input.lengthSq() > 0) {
+				input.normalize();
+
+				//make hte movement relative to camera
+				input.applyAxisAngle(new THREE.Vector3(0, 1, 0), camera.rotation.y);
+
+				// velocity smoothing
+				const targetVelocity = input.multiplyScalar(speed);
+				velocity.lerp(targetVelocity, 10 * dt);
+
+				// apply the movement
+				if (characterRoot) {
+					characterRoot.position.addScaledVector(velocity, dt);
+				}
+
+				// animation blending
+				if (walkAction) {
+					if (isMoving) {
+						walkAction.paused = false;
+						walkAction.setEffectiveWeight(1);
+					} else {
+						walkAction.setEffectiveWeight(0);
+						walkAction.paused = true;
+					}
+				}
+
+				if (mixer) {
+					mixer.update(dt);
+				}
+			}
 
       // Face cursor
       if (characterRoot) {
@@ -139,7 +179,7 @@ export default function GameCanvas() {
         if (raycaster.ray.intersectPlane(groundPlane, groundHit)) {
           const dx = groundHit.x - characterRoot.position.x;
           const dz = groundHit.z - characterRoot.position.z;
-          if (dx * dx + dz * dz > 0.001) {
+          if (dx * dx + dz * dz > 0.01) {
             characterRoot.rotation.y = Math.atan2(dx, dz);
           }
         }
