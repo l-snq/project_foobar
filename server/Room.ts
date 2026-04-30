@@ -19,6 +19,8 @@ const PROJECTILE_RADIUS = 0.25;    // hit radius
 const PLAYER_RADIUS = 0.5;
 const PISTOL_DAMAGE = 25;
 const FIRE_RATE_MS = 400;          // min ms between shots per player
+const MAX_AMMO = 8;
+const RELOAD_MS = 1000;            // matches reload animation duration
 
 interface Client {
   id: ClientId;
@@ -31,6 +33,7 @@ interface Client {
   dancing: boolean;
   joined: boolean;
   lastShotAt: number;
+  reloadingUntil: number; // epoch ms, 0 = not reloading
 }
 
 interface LiveProjectile extends ProjectileState {
@@ -52,7 +55,7 @@ export class Room {
     this.clients.set(id, {
       id, ws, name: "Player",
       inputX: 0, inputZ: 0, rotY: 0,
-      weapon: "none", dancing: false, joined: false, lastShotAt: 0,
+      weapon: "none", dancing: false, joined: false, lastShotAt: 0, reloadingUntil: 0,
     });
     const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick };
     ws.send(JSON.stringify(handshake));
@@ -81,7 +84,7 @@ export class Room {
       client.joined = true;
       this.states.set(id, {
         id, name, x: 0, y: 0, z: 0, rotY: 0,
-        moving: false, weapon: "none", health: MAX_HEALTH, dancing: false,
+        moving: false, weapon: "none", health: MAX_HEALTH, dancing: false, ammo: MAX_AMMO, reloading: false,
       });
       return;
     }
@@ -103,24 +106,40 @@ export class Room {
       const state = this.states.get(id);
       if (!state || state.health <= 0) return;
       if (client.weapon !== "pistol") return;
+      if (client.reloadingUntil > now) return;
+      if (state.ammo <= 0) return;
 
-      // Normalise direction server-side
       const len = Math.sqrt(msg.dirX * msg.dirX + msg.dirZ * msg.dirZ);
       if (len < 0.001) return;
       const dirX = msg.dirX / len;
       const dirZ = msg.dirZ / len;
 
       client.lastShotAt = now;
+      state.ammo--;
       const pid = randomUUID();
       this.projectiles.set(pid, {
-        id: pid,
-        ownerId: id,
-        x: state.x,
-        z: state.z,
-        dirX,
-        dirZ,
-        age: 0,
+        id: pid, ownerId: id,
+        x: state.x, z: state.z, dirX, dirZ, age: 0,
       });
+    }
+
+    if (msg.type === "reload") {
+      const now = Date.now();
+      const state = this.states.get(id);
+      if (!state || state.health <= 0) return;
+      if (client.weapon !== "pistol") return;
+      if (client.reloadingUntil > now) return;  // already reloading
+      if (state.ammo === MAX_AMMO) return;       // already full
+
+      client.reloadingUntil = now + RELOAD_MS;
+      state.reloading = true;
+      setTimeout(() => {
+        const s = this.states.get(id);
+        if (!s) return;
+        s.ammo = MAX_AMMO;
+        s.reloading = false;
+        client.reloadingUntil = 0;
+      }, RELOAD_MS);
     }
 
     if (msg.type === "chat") {
@@ -145,6 +164,7 @@ export class Room {
       state.rotY = client.rotY;
       state.weapon = client.weapon;
       state.dancing = client.dancing;
+      state.reloading = client.reloadingUntil > Date.now();
 
       if (moving) {
         state.x = Math.max(-BOUNDS, Math.min(BOUNDS, state.x + client.inputX * PLAYER_SPEED * dt));

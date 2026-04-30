@@ -67,7 +67,9 @@ interface RemotePlayer {
   walkActionUnarmed: THREE.AnimationAction;
   walkActionPistol: THREE.AnimationAction;
   danceAction: THREE.AnimationAction | null;
+  reloadAction: THREE.AnimationAction | null;
   dancing: boolean;
+  reloading: boolean;
   targetX: number;
   targetZ: number;
   targetRotY: number;
@@ -99,6 +101,8 @@ export default function GameCanvas({ playerName }: Props) {
   const [isDead, setIsDead] = useState(false);
   const [showHitFlash, setShowHitFlash] = useState(false);
   const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
+  const [ammo, setAmmo] = useState(8);
+  const [isReloading, setIsReloading] = useState(false);
   const chatIdRef = useRef(0);
   const chatInputRef = useRef<HTMLInputElement>(null);
 
@@ -112,6 +116,7 @@ export default function GameCanvas({ playerName }: Props) {
 
   // Refs that the Three.js loop reads — avoids stale closures
   const weaponRef = useRef<Weapon>("none");
+  const isReloadingRef = useRef(false);
 
   const sendChat = useCallback((text: string) => {
     const ws = wsRef.current;
@@ -161,6 +166,24 @@ export default function GameCanvas({ playerName }: Props) {
 
     scene.add(buildGround());
 
+    // ---- Reload ----
+    function triggerReload() {
+      if (isReloadingRef.current) return;
+      if (!reloadAction || !walkPistol || !mixerPistol) return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      isReloadingRef.current = true;
+      setIsReloading(true);
+      ws.send(JSON.stringify({ type: "reload" } satisfies ClientMessage));
+
+      walkPistol.setEffectiveWeight(0);
+      walkPistol.paused = true;
+      reloadAction.reset();
+      reloadAction.setEffectiveWeight(1);
+      reloadAction.play();
+    }
+
     // ---- Input ----
     const keys = { w: false, a: false, s: false, d: false };
     function onKeyDown(e: KeyboardEvent) {
@@ -179,16 +202,17 @@ export default function GameCanvas({ playerName }: Props) {
         weaponRef.current = next;
         setWeapon(next);
       }
-      if (k === "r" && !isDancing && danceAction && walkUnarmed && mixerUnarmed) {
-        // Force unarmed model, then crossfade walk → dance
-        isDancing = true;
-        weaponRef.current = "none";
-        setWeapon("none");
-        walkUnarmed.setEffectiveWeight(0);
-        walkUnarmed.paused = true;
-        danceAction.reset();
-        danceAction.setEffectiveWeight(1);
-        danceAction.play();
+      if (k === "r") {
+        if (weaponRef.current === "pistol") {
+          triggerReload();
+        } else if (!isDancing && danceAction && walkUnarmed && mixerUnarmed) {
+          isDancing = true;
+          walkUnarmed.setEffectiveWeight(0);
+          walkUnarmed.paused = true;
+          danceAction.reset();
+          danceAction.setEffectiveWeight(1);
+          danceAction.play();
+        }
       }
     }
     function onKeyUp(e: KeyboardEvent) {
@@ -216,6 +240,7 @@ export default function GameCanvas({ playerName }: Props) {
       if (e.button !== 0) return;
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
       if (weaponRef.current !== "pistol") return;
+      if (isReloadingRef.current) return;
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
@@ -229,8 +254,7 @@ export default function GameCanvas({ playerName }: Props) {
       const len = Math.sqrt(dx * dx + dz * dz);
       if (len < 0.001) return;
 
-      const shootMsg: ClientMessage = { type: "shoot", dirX: dx / len, dirZ: dz / len };
-      ws.send(JSON.stringify(shootMsg));
+      ws.send(JSON.stringify({ type: "shoot", dirX: dx / len, dirZ: dz / len } satisfies ClientMessage));
     }
     window.addEventListener("mousedown", onMouseDown);
 
@@ -246,6 +270,7 @@ export default function GameCanvas({ playerName }: Props) {
     let walkUnarmed: THREE.AnimationAction | null = null;
     let walkPistol: THREE.AnimationAction | null = null;
     let danceAction: THREE.AnimationAction | null = null;
+    let reloadAction: THREE.AnimationAction | null = null;
     let isDancing = false;
     let characterRoot: THREE.Object3D | null = null; // points to whichever model is active
 
@@ -323,6 +348,21 @@ export default function GameCanvas({ playerName }: Props) {
         walkPistol.paused = true;
         walkPistol.setEffectiveWeight(0);
       }
+      const reloadClip = gltf.animations.find((a) => a.name === "reload");
+      if (reloadClip && mixerPistol) {
+        reloadAction = mixerPistol.clipAction(reloadClip);
+        reloadAction.setLoop(THREE.LoopOnce, 1);
+        reloadAction.clampWhenFinished = true;
+        reloadAction.setEffectiveWeight(0);
+        mixerPistol.addEventListener("finished", (e) => {
+          if (e.action === reloadAction) {
+            reloadAction!.setEffectiveWeight(0);
+            reloadAction!.stop();
+            isReloadingRef.current = false;
+            setIsReloading(false);
+          }
+        });
+      }
 
       if (++loadedCount === 2) onBothLoaded();
     });
@@ -380,6 +420,23 @@ export default function GameCanvas({ playerName }: Props) {
         });
       }
 
+      // Set up reload on the pistol mixer
+      let remoteReloadAction: THREE.AnimationAction | null = null;
+      const reloadClip = tplPistol.animations.find((a) => a.name === "reload");
+      if (reloadClip) {
+        remoteReloadAction = pistol.mixer.clipAction(reloadClip.clone());
+        remoteReloadAction.setLoop(THREE.LoopOnce, 1);
+        remoteReloadAction.clampWhenFinished = true;
+        remoteReloadAction.setEffectiveWeight(0);
+        const ra = remoteReloadAction;
+        pistol.mixer.addEventListener("finished", (e) => {
+          if (e.action === ra) {
+            ra.setEffectiveWeight(0);
+            ra.stop();
+          }
+        });
+      }
+
       remotePlayers.set(id, {
         rootUnarmed: unarmed.root,
         rootPistol: pistol.root,
@@ -389,7 +446,9 @@ export default function GameCanvas({ playerName }: Props) {
         walkActionUnarmed: unarmed.walkAction,
         walkActionPistol: pistol.walkAction,
         danceAction: remoteDanceAction,
+        reloadAction: remoteReloadAction,
         dancing: state.dancing,
+        reloading: state.reloading,
         targetX: state.x,
         targetZ: state.z,
         targetRotY: state.rotY,
@@ -412,6 +471,7 @@ export default function GameCanvas({ playerName }: Props) {
       remote.weapon = p.weapon;
       remote.health = p.health;
       remote.dancing = p.dancing;
+      remote.reloading = p.reloading;
     }
 
     function removeRemote(id: string) {
@@ -481,6 +541,8 @@ export default function GameCanvas({ playerName }: Props) {
           if (p.id === myId) {
             serverPos.set(p.x, p.y, p.z);
             setHealth(p.health);
+            setAmmo(p.ammo);
+            if (!p.reloading && isReloadingRef.current === false) setIsReloading(false);
           } else {
             if (tplUnarmed && tplPistol) {
               applyRemoteState(p);
@@ -612,11 +674,12 @@ export default function GameCanvas({ playerName }: Props) {
         inactive.rotation.copy(active.rotation);
       }
 
-      // Walk / dance animation — drive whichever local model is active
+      // Walk / dance / reload animation — drive whichever local model is active
       const isMoving = input.lengthSq() > 0;
       if (isDancing) {
-        // Dance is playing — just tick the unarmed mixer, leave walk suppressed
         if (mixerUnarmed) mixerUnarmed.update(dt);
+      } else if (isReloadingRef.current && currentWeapon === "pistol") {
+        if (mixerPistol) mixerPistol.update(dt);
       } else {
         const activeWalk = currentWeapon === "pistol" ? walkPistol : walkUnarmed;
         const activeMixer = currentWeapon === "pistol" ? mixerPistol : mixerUnarmed;
@@ -644,7 +707,6 @@ export default function GameCanvas({ playerName }: Props) {
         inactiveRoot.rotation.copy(activeRoot.rotation);
 
         if (remote.dancing) {
-          // Kick off dance if not already running
           if (remote.danceAction && remote.danceAction.weight === 0) {
             remote.walkActionUnarmed.setEffectiveWeight(0);
             remote.walkActionUnarmed.paused = true;
@@ -653,11 +715,23 @@ export default function GameCanvas({ playerName }: Props) {
             remote.danceAction.play();
           }
           remote.mixerUnarmed.update(dt);
+        } else if (remote.reloading && isPistol) {
+          if (remote.reloadAction && remote.reloadAction.weight === 0) {
+            remote.walkActionPistol.setEffectiveWeight(0);
+            remote.walkActionPistol.paused = true;
+            remote.reloadAction.reset();
+            remote.reloadAction.setEffectiveWeight(1);
+            remote.reloadAction.play();
+          }
+          remote.mixerPistol.update(dt);
         } else {
-          // Stop dance if it was playing and server says no longer dancing
           if (remote.danceAction && remote.danceAction.weight > 0) {
             remote.danceAction.setEffectiveWeight(0);
             remote.danceAction.stop();
+          }
+          if (remote.reloadAction && remote.reloadAction.weight > 0) {
+            remote.reloadAction.setEffectiveWeight(0);
+            remote.reloadAction.stop();
           }
           const rWalk = isPistol ? remote.walkActionPistol : remote.walkActionUnarmed;
           const rMixer = isPistol ? remote.mixerPistol : remote.mixerUnarmed;
@@ -771,7 +845,15 @@ export default function GameCanvas({ playerName }: Props) {
       </div>
 
       {/* Weapon slot HUD */}
-      <div className="absolute bottom-4 right-4 flex gap-2 pointer-events-none">
+      <div className="absolute bottom-4 right-4 flex flex-col items-end gap-1 pointer-events-none">
+        {weapon === "pistol" && (
+          <div className="text-sm font-bold tracking-wider">
+            {isReloading
+              ? <span className="text-yellow-300 animate-pulse">RELOADING…</span>
+              : <span className={ammo === 0 ? "text-red-400" : "text-white"}>{ammo} / 8</span>
+            }
+          </div>
+        )}
         <div className={`w-12 h-12 rounded border-2 flex items-center justify-center text-xs font-bold
           ${weapon === "pistol" ? "border-yellow-400 bg-yellow-400/20 text-yellow-300" : "border-gray-600 bg-gray-800/50 text-gray-500"}`}>
           <span className="flex flex-col items-center gap-0.5">
