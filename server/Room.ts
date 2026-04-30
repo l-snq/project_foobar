@@ -1,11 +1,24 @@
+import { randomUUID } from "crypto";
 import type { WebSocket } from "ws";
-import type { ClientId, PlayerState, ServerMessage, ClientMessage } from "./types";
+import type {
+  ClientId, PlayerState, ProjectileState,
+  ServerMessage, ClientMessage, Weapon,
+} from "./types";
 
 const TICK_RATE = 20;
 const TICK_MS = 1000 / TICK_RATE;
-const SPEED = 4;
+const PLAYER_SPEED = 4;
 const BOUNDS = 19.5;
 const MAX_CHAT_LEN = 200;
+const MAX_HEALTH = 100;
+
+// Pistol config
+const PROJECTILE_SPEED = 20;       // units/sec
+const PROJECTILE_LIFETIME = 2;     // seconds
+const PROJECTILE_RADIUS = 0.25;    // hit radius
+const PLAYER_RADIUS = 0.5;
+const PISTOL_DAMAGE = 25;
+const FIRE_RATE_MS = 400;          // min ms between shots per player
 
 interface Client {
   id: ClientId;
@@ -14,12 +27,19 @@ interface Client {
   inputX: number;
   inputZ: number;
   rotY: number;
+  weapon: Weapon;
   joined: boolean;
+  lastShotAt: number;
+}
+
+interface LiveProjectile extends ProjectileState {
+  age: number; // seconds
 }
 
 export class Room {
   private clients = new Map<ClientId, Client>();
   private states = new Map<ClientId, PlayerState>();
+  private projectiles = new Map<string, LiveProjectile>();
   private tick = 0;
   private interval: ReturnType<typeof setInterval> | null = null;
 
@@ -28,27 +48,29 @@ export class Room {
   }
 
   add(id: ClientId, ws: WebSocket) {
-    this.clients.set(id, { id, ws, name: "Player", inputX: 0, inputZ: 0, rotY: 0, joined: false });
-
+    this.clients.set(id, {
+      id, ws, name: "Player",
+      inputX: 0, inputZ: 0, rotY: 0,
+      weapon: "none", joined: false, lastShotAt: 0,
+    });
     const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick };
     ws.send(JSON.stringify(handshake));
-    // State is not added until the client sends a "join" with their name
   }
 
   remove(id: ClientId) {
     this.clients.delete(id);
     this.states.delete(id);
+    // Remove any projectiles owned by this client
+    for (const [pid, p] of this.projectiles) {
+      if (p.ownerId === id) this.projectiles.delete(pid);
+    }
     const msg: ServerMessage = { type: "playerLeft", id };
     this.broadcast(msg);
   }
 
   handleMessage(id: ClientId, raw: string) {
     let msg: ClientMessage;
-    try {
-      msg = JSON.parse(raw);
-    } catch {
-      return;
-    }
+    try { msg = JSON.parse(raw); } catch { return; }
     const client = this.clients.get(id);
     if (!client) return;
 
@@ -56,7 +78,10 @@ export class Room {
       const name = msg.name.trim().slice(0, 24) || "Player";
       client.name = name;
       client.joined = true;
-      this.states.set(id, { id, name, x: 0, y: 0, z: 0, rotY: 0, moving: false });
+      this.states.set(id, {
+        id, name, x: 0, y: 0, z: 0, rotY: 0,
+        moving: false, weapon: "none", health: MAX_HEALTH,
+      });
       return;
     }
 
@@ -64,21 +89,42 @@ export class Room {
 
     if (msg.type === "input") {
       const len = Math.sqrt(msg.x * msg.x + msg.z * msg.z);
-      if (len > 1) {
-        client.inputX = msg.x / len;
-        client.inputZ = msg.z / len;
-      } else {
-        client.inputX = msg.x;
-        client.inputZ = msg.z;
-      }
+      client.inputX = len > 1 ? msg.x / len : msg.x;
+      client.inputZ = len > 1 ? msg.z / len : msg.z;
       client.rotY = msg.rotY;
+      client.weapon = msg.weapon;
+    }
+
+    if (msg.type === "shoot") {
+      const now = Date.now();
+      if (now - client.lastShotAt < FIRE_RATE_MS) return;
+      const state = this.states.get(id);
+      if (!state || state.health <= 0) return;
+      if (client.weapon !== "pistol") return;
+
+      // Normalise direction server-side
+      const len = Math.sqrt(msg.dirX * msg.dirX + msg.dirZ * msg.dirZ);
+      if (len < 0.001) return;
+      const dirX = msg.dirX / len;
+      const dirZ = msg.dirZ / len;
+
+      client.lastShotAt = now;
+      const pid = randomUUID();
+      this.projectiles.set(pid, {
+        id: pid,
+        ownerId: id,
+        x: state.x,
+        z: state.z,
+        dirX,
+        dirZ,
+        age: 0,
+      });
     }
 
     if (msg.type === "chat") {
       const text = msg.text.trim().slice(0, MAX_CHAT_LEN);
       if (!text) return;
-      const chatMsg: ServerMessage = { type: "chat", fromId: id, fromName: client.name, text };
-      this.broadcast(chatMsg);
+      this.broadcast({ type: "chat", fromId: id, fromName: client.name, text });
     }
   }
 
@@ -86,16 +132,66 @@ export class Room {
     this.tick++;
     const dt = TICK_MS / 1000;
 
+    // Move players
     for (const [id, client] of this.clients) {
       if (!client.joined) continue;
       const state = this.states.get(id)!;
+      if (state.health <= 0) continue;
+
       const moving = client.inputX !== 0 || client.inputZ !== 0;
       state.moving = moving;
       state.rotY = client.rotY;
+      state.weapon = client.weapon;
 
       if (moving) {
-        state.x = Math.max(-BOUNDS, Math.min(BOUNDS, state.x + client.inputX * SPEED * dt));
-        state.z = Math.max(-BOUNDS, Math.min(BOUNDS, state.z + client.inputZ * SPEED * dt));
+        state.x = Math.max(-BOUNDS, Math.min(BOUNDS, state.x + client.inputX * PLAYER_SPEED * dt));
+        state.z = Math.max(-BOUNDS, Math.min(BOUNDS, state.z + client.inputZ * PLAYER_SPEED * dt));
+      }
+    }
+
+    // Move projectiles and check hits
+    for (const [pid, proj] of this.projectiles) {
+      proj.age += dt;
+      if (proj.age > PROJECTILE_LIFETIME) {
+        this.projectiles.delete(pid);
+        continue;
+      }
+
+      proj.x += proj.dirX * PROJECTILE_SPEED * dt;
+      proj.z += proj.dirZ * PROJECTILE_SPEED * dt;
+
+      // Out of bounds
+      if (Math.abs(proj.x) > BOUNDS || Math.abs(proj.z) > BOUNDS) {
+        this.projectiles.delete(pid);
+        continue;
+      }
+
+      // Hit detection against all other players
+      for (const [tid, tstate] of this.states) {
+        if (tid === proj.ownerId) continue;
+        if (tstate.health <= 0) continue;
+
+        const dx = proj.x - tstate.x;
+        const dz = proj.z - tstate.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist < PROJECTILE_RADIUS + PLAYER_RADIUS) {
+          this.projectiles.delete(pid);
+          tstate.health = Math.max(0, tstate.health - PISTOL_DAMAGE);
+          this.broadcast({ type: "hit", targetId: tid, health: tstate.health });
+
+          if (tstate.health <= 0) {
+            this.broadcast({ type: "died", targetId: tid });
+            // Respawn after 3 seconds
+            setTimeout(() => {
+              const s = this.states.get(tid);
+              if (!s) return;
+              s.health = MAX_HEALTH;
+              s.x = 0;
+              s.z = 0;
+            }, 3000);
+          }
+          break;
+        }
       }
     }
 
@@ -103,6 +199,9 @@ export class Room {
       type: "snapshot",
       tick: this.tick,
       players: Array.from(this.states.values()),
+      projectiles: Array.from(this.projectiles.values()).map(({ id, ownerId, x, z, dirX, dirZ }) => ({
+        id, ownerId, x, z, dirX, dirZ,
+      })),
     };
     this.broadcast(snapshot);
   }
@@ -110,15 +209,11 @@ export class Room {
   private broadcast(msg: ServerMessage) {
     const raw = JSON.stringify(msg);
     for (const client of this.clients.values()) {
-      if (client.ws.readyState === 1 /* OPEN */) {
-        client.ws.send(raw);
-      }
+      if (client.ws.readyState === 1) client.ws.send(raw);
     }
   }
 
-  get size() {
-    return this.clients.size;
-  }
+  get size() { return this.clients.size; }
 
   destroy() {
     if (this.interval) clearInterval(this.interval);

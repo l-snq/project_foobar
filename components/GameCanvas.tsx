@@ -4,10 +4,11 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import type { ServerMessage, ClientMessage, PlayerState } from "../server/types";
+import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon } from "../server/types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "ws://localhost:3001";
 const LERP_FACTOR = 0.2;
+const MAX_HEALTH = 100;
 
 // ---------------------------------------------------------------------------
 function buildGround(): THREE.Group {
@@ -41,15 +42,36 @@ function makeNameLabel(name: string, isLocal = false): CSS2DObject {
   return label;
 }
 
+const BULLET_LENGTH = 0.6; // world units
+
+function makeProjectileLine(): THREE.Line {
+  // Two points: tail then head. Updated each frame from server state.
+  const positions = new Float32Array(6); // 2 × xyz
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.LineBasicMaterial({ color: 0xffdd00 });
+  return new THREE.Line(geo, mat);
+}
+
+interface GltfTemplate {
+  scene: THREE.Group;
+  animations: THREE.AnimationClip[];
+}
+
 interface RemotePlayer {
-  root: THREE.Object3D;
-  mixer: THREE.AnimationMixer;
-  walkAction: THREE.AnimationAction;
-  label: CSS2DObject;
+  // We keep two model roots and swap visibility based on weapon
+  rootUnarmed: THREE.Object3D;
+  rootPistol: THREE.Object3D;
+  mixerUnarmed: THREE.AnimationMixer;
+  mixerPistol: THREE.AnimationMixer;
+  walkActionUnarmed: THREE.AnimationAction;
+  walkActionPistol: THREE.AnimationAction;
   targetX: number;
   targetZ: number;
   targetRotY: number;
   moving: boolean;
+  weapon: Weapon;
+  health: number;
 }
 
 export interface ChatMessage {
@@ -70,8 +92,24 @@ export default function GameCanvas({ playerName }: Props) {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
+  const [health, setHealth] = useState(MAX_HEALTH);
+  const [weapon, setWeapon] = useState<Weapon>("none");
+  const [isDead, setIsDead] = useState(false);
+  const [showHitFlash, setShowHitFlash] = useState(false);
+  const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
   const chatIdRef = useRef(0);
   const chatInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      setCursorPos({ x: e.clientX, y: e.clientY });
+    }
+    window.addEventListener("mousemove", onMouseMove);
+    return () => window.removeEventListener("mousemove", onMouseMove);
+  }, []);
+
+  // Refs that the Three.js loop reads — avoids stale closures
+  const weaponRef = useRef<Weapon>("none");
 
   const sendChat = useCallback((text: string) => {
     const ws = wsRef.current;
@@ -90,11 +128,10 @@ export default function GameCanvas({ playerName }: Props) {
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     mount.appendChild(renderer.domElement);
 
-    // ---- CSS2D label renderer (overlays on top of the WebGL canvas) ----
+    // ---- CSS2D label renderer ----
     const labelRenderer = new CSS2DRenderer();
     labelRenderer.setSize(mount.clientWidth, mount.clientHeight);
-    labelRenderer.domElement.style.cssText =
-      "position:absolute;top:0;left:0;pointer-events:none;";
+    labelRenderer.domElement.style.cssText = "position:absolute;top:0;left:0;pointer-events:none;";
     mount.appendChild(labelRenderer.domElement);
 
     // ---- Scene ----
@@ -106,12 +143,9 @@ export default function GameCanvas({ playerName }: Props) {
     const aspect = mount.clientWidth / mount.clientHeight;
     const frustum = 8;
     const camera = new THREE.OrthographicCamera(
-      (-frustum * aspect) / 2,
-      (frustum * aspect) / 2,
-      frustum / 2,
-      -frustum / 2,
-      0.1,
-      200
+      (-frustum * aspect) / 2, (frustum * aspect) / 2,
+      frustum / 2, -frustum / 2,
+      0.1, 200
     );
     const d = 10;
     camera.position.set(d, d * 0.816, d);
@@ -130,18 +164,19 @@ export default function GameCanvas({ playerName }: Props) {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Enter") {
         setChatOpen((prev) => {
-          if (!prev) {
-            // Opening chat — focus the input next tick
-            setTimeout(() => chatInputRef.current?.focus(), 0);
-          }
+          if (!prev) setTimeout(() => chatInputRef.current?.focus(), 0);
           return !prev;
         });
         return;
       }
-      // Suppress WASD while chat is open
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
       const k = e.key.toLowerCase();
       if (k in keys) (keys as Record<string, boolean>)[k] = true;
+      if (k === "1") {
+        const next: Weapon = weaponRef.current === "pistol" ? "none" : "pistol";
+        weaponRef.current = next;
+        setWeapon(next);
+      }
     }
     function onKeyUp(e: KeyboardEvent) {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
@@ -151,7 +186,7 @@ export default function GameCanvas({ playerName }: Props) {
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
 
-    // ---- Mouse → ground direction ----
+    // ---- Mouse ----
     const mouse = new THREE.Vector2(0, 0);
     const raycaster = new THREE.Raycaster();
     const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -163,77 +198,153 @@ export default function GameCanvas({ playerName }: Props) {
     }
     window.addEventListener("mousemove", onMouseMove);
 
-    // ---- GLTF ----
-    let gltfTemplate: { scene: THREE.Group; animations: THREE.AnimationClip[] } | null = null;
-    let mixer: THREE.AnimationMixer | null = null;
-    let walkAction: THREE.AnimationAction | null = null;
-    let characterRoot: THREE.Object3D | null = null;
+    // Shoot on left-click
+    function onMouseDown(e: MouseEvent) {
+      if (e.button !== 0) return;
+      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+      if (weaponRef.current !== "pistol") return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      raycaster.setFromCamera(mouse, camera);
+      const hit = new THREE.Vector3();
+      if (!raycaster.ray.intersectPlane(groundPlane, hit)) return;
+      if (!characterRoot) return;
+
+      const dx = hit.x - characterRoot.position.x;
+      const dz = hit.z - characterRoot.position.z;
+      const len = Math.sqrt(dx * dx + dz * dz);
+      if (len < 0.001) return;
+
+      const shootMsg: ClientMessage = { type: "shoot", dirX: dx / len, dirZ: dz / len };
+      ws.send(JSON.stringify(shootMsg));
+    }
+    window.addEventListener("mousedown", onMouseDown);
+
+    // ---- GLTF templates ----
+    let tplUnarmed: GltfTemplate | null = null;
+    let tplPistol: GltfTemplate | null = null;
+
+    // Local player roots (one per model, swap visible)
+    let localUnarmed: THREE.Object3D | null = null;
+    let localPistol: THREE.Object3D | null = null;
+    let mixerUnarmed: THREE.AnimationMixer | null = null;
+    let mixerPistol: THREE.AnimationMixer | null = null;
+    let walkUnarmed: THREE.AnimationAction | null = null;
+    let walkPistol: THREE.AnimationAction | null = null;
+    let characterRoot: THREE.Object3D | null = null; // points to whichever model is active
+
     let serverPos = new THREE.Vector3();
     let myId: string | null = null;
     const pendingRemoteStates: PlayerState[] = [];
 
+    let loadedCount = 0;
+    function onBothLoaded() {
+      // Called once both GLTFs are ready
+      for (const p of pendingRemoteStates) applyRemoteState(p);
+      pendingRemoteStates.length = 0;
+    }
+
     const loader = new GLTFLoader();
+
     loader.load("/lilguy.gltf", (gltf) => {
-      // Clone before touching the scene so the template stays label-free.
-      // Remote player spawns clone from gltfTemplate, which must not carry
-      // any labels from the local player.
-      gltfTemplate = { scene: gltf.scene.clone(true), animations: gltf.animations };
+      tplUnarmed = { scene: gltf.scene.clone(true), animations: gltf.animations };
 
       const model = gltf.scene;
       model.scale.setScalar(0.48);
+      model.visible = true;
       scene.add(model);
+      localUnarmed = model;
       characterRoot = model;
 
-      // Floating name label for local player (added after cloning the template)
       const localLabel = makeNameLabel(playerName, true);
       model.add(localLabel);
 
+      mixerUnarmed = new THREE.AnimationMixer(model);
       if (gltf.animations.length > 0) {
-        mixer = new THREE.AnimationMixer(model);
-        walkAction = mixer.clipAction(gltf.animations[0]);
-        walkAction.setLoop(THREE.LoopRepeat, Infinity);
-        walkAction.play();
-        walkAction.paused = true;
-        walkAction.setEffectiveWeight(0);
+        walkUnarmed = mixerUnarmed.clipAction(gltf.animations[0]);
+        walkUnarmed.setLoop(THREE.LoopRepeat, Infinity);
+        walkUnarmed.play();
+        walkUnarmed.paused = true;
+        walkUnarmed.setEffectiveWeight(0);
       }
 
-      for (const p of pendingRemoteStates) applyRemoteState(p);
-      pendingRemoteStates.length = 0;
+      if (++loadedCount === 2) onBothLoaded();
+    });
+
+    loader.load("/lilguy_holding_pistol.gltf", (gltf) => {
+      tplPistol = { scene: gltf.scene.clone(true), animations: gltf.animations };
+
+      const model = gltf.scene;
+      model.scale.setScalar(0.48);
+      model.visible = false; // hidden until player presses 1
+      scene.add(model);
+      localPistol = model;
+
+      mixerPistol = new THREE.AnimationMixer(model);
+      if (gltf.animations.length > 0) {
+        walkPistol = mixerPistol.clipAction(gltf.animations[0]);
+        walkPistol.setLoop(THREE.LoopRepeat, Infinity);
+        walkPistol.play();
+        walkPistol.paused = true;
+        walkPistol.setEffectiveWeight(0);
+      }
+
+      if (++loadedCount === 2) onBothLoaded();
     });
 
     // ---- Remote players ----
     const remotePlayers = new Map<string, RemotePlayer>();
 
     function spawnRemote(id: string, state: PlayerState) {
-      if (!gltfTemplate) return;
+      if (!tplUnarmed || !tplPistol) return;
 
-      const model = gltfTemplate.scene.clone(true);
-      model.scale.setScalar(0.48);
-      model.position.set(state.x, state.y, state.z);
-      model.rotation.y = state.rotY;
+      function makeRemoteModel(tpl: GltfTemplate, visible: boolean): {
+        root: THREE.Object3D;
+        mixer: THREE.AnimationMixer;
+        walkAction: THREE.AnimationAction;
+      } {
+        const model = tpl.scene.clone(true);
+        model.scale.setScalar(0.48);
+        model.position.set(state.x, state.y, state.z);
+        model.rotation.y = state.rotY;
+        model.visible = visible;
+        scene.add(model);
+        const mx = new THREE.AnimationMixer(model);
+        const clip = tpl.animations[0]?.clone();
+        let action!: THREE.AnimationAction;
+        if (clip) {
+          action = mx.clipAction(clip);
+          action.setLoop(THREE.LoopRepeat, Infinity);
+          action.play();
+          action.paused = true;
+          action.setEffectiveWeight(0);
+        }
+        return { root: model, mixer: mx, walkAction: action };
+      }
 
+      const unarmed = makeRemoteModel(tplUnarmed, state.weapon !== "pistol");
+      const pistol = makeRemoteModel(tplPistol, state.weapon === "pistol");
+
+      // Label only on unarmed root; we'll move it in applyRemoteState if needed.
+      // Simpler: add to a shared group. Instead, just add to unarmed and keep
+      // both roots at the same position so the label follows correctly.
       const label = makeNameLabel(state.name);
-      model.add(label);
-
-      scene.add(model);
-
-      const remoteMixer = new THREE.AnimationMixer(model);
-      const clip = gltfTemplate.animations[0].clone();
-      const action = remoteMixer.clipAction(clip);
-      action.setLoop(THREE.LoopRepeat, Infinity);
-      action.play();
-      action.paused = true;
-      action.setEffectiveWeight(0);
+      unarmed.root.add(label);
 
       remotePlayers.set(id, {
-        root: model,
-        mixer: remoteMixer,
-        walkAction: action,
-        label,
+        rootUnarmed: unarmed.root,
+        rootPistol: pistol.root,
+        mixerUnarmed: unarmed.mixer,
+        mixerPistol: pistol.mixer,
+        walkActionUnarmed: unarmed.walkAction,
+        walkActionPistol: pistol.walkAction,
         targetX: state.x,
         targetZ: state.z,
         targetRotY: state.rotY,
         moving: state.moving,
+        weapon: state.weapon,
+        health: state.health,
       });
     }
 
@@ -247,14 +358,50 @@ export default function GameCanvas({ playerName }: Props) {
       remote.targetZ = p.z;
       remote.targetRotY = p.rotY;
       remote.moving = p.moving;
+      remote.weapon = p.weapon;
+      remote.health = p.health;
     }
 
     function removeRemote(id: string) {
       const remote = remotePlayers.get(id);
       if (remote) {
-        remote.mixer.stopAllAction();
-        scene.remove(remote.root);
+        remote.mixerUnarmed.stopAllAction();
+        remote.mixerPistol.stopAllAction();
+        scene.remove(remote.rootUnarmed);
+        scene.remove(remote.rootPistol);
         remotePlayers.delete(id);
+      }
+    }
+
+    // ---- Client-side projectiles (visual only, server is authoritative) ----
+    const projectileLines = new Map<string, THREE.Line>();
+
+    function syncProjectiles(serverProjectiles: ProjectileState[]) {
+      const seen = new Set<string>();
+      for (const p of serverProjectiles) {
+        seen.add(p.id);
+        if (!projectileLines.has(p.id)) {
+          const line = makeProjectileLine();
+          scene.add(line);
+          projectileLines.set(p.id, line);
+        }
+        const line = projectileLines.get(p.id)!;
+        const pos = line.geometry.attributes.position as THREE.BufferAttribute;
+        const Y = 0.5;
+        // tail (back of bullet)
+        pos.setXYZ(0, p.x - p.dirX * BULLET_LENGTH, Y, p.z - p.dirZ * BULLET_LENGTH);
+        // head
+        pos.setXYZ(1, p.x, Y, p.z);
+        pos.needsUpdate = true;
+        line.geometry.computeBoundingSphere();
+      }
+      for (const [id, line] of projectileLines) {
+        if (!seen.has(id)) {
+          line.geometry.dispose();
+          (line.material as THREE.Material).dispose();
+          scene.remove(line);
+          projectileLines.delete(id);
+        }
       }
     }
 
@@ -263,8 +410,7 @@ export default function GameCanvas({ playerName }: Props) {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      const joinMsg: ClientMessage = { type: "join", name: playerName };
-      ws.send(JSON.stringify(joinMsg));
+      ws.send(JSON.stringify({ type: "join", name: playerName } satisfies ClientMessage));
     };
 
     ws.onmessage = (event: MessageEvent) => {
@@ -280,8 +426,9 @@ export default function GameCanvas({ playerName }: Props) {
           seen.add(p.id);
           if (p.id === myId) {
             serverPos.set(p.x, p.y, p.z);
+            setHealth(p.health);
           } else {
-            if (gltfTemplate) {
+            if (tplUnarmed && tplPistol) {
               applyRemoteState(p);
             } else {
               const existing = pendingRemoteStates.findIndex((s) => s.id === p.id);
@@ -293,20 +440,36 @@ export default function GameCanvas({ playerName }: Props) {
         for (const id of remotePlayers.keys()) {
           if (!seen.has(id)) removeRemote(id);
         }
+        syncProjectiles(msg.projectiles);
       }
 
-      if (msg.type === "playerLeft") {
-        removeRemote(msg.id);
+      if (msg.type === "playerLeft") removeRemote(msg.id);
+
+      if (msg.type === "hit" && msg.targetId === myId) {
+        setHealth(msg.health);
+        setShowHitFlash(true);
+        setTimeout(() => setShowHitFlash(false), 200);
+      }
+
+      if (msg.type === "died") {
+        if (msg.targetId === myId) {
+          setIsDead(true);
+          setHealth(0);
+          // Server respawns us after 3s; mirror that on the client
+          setTimeout(() => {
+            setIsDead(false);
+            setHealth(MAX_HEALTH);
+            if (characterRoot) characterRoot.position.set(0, 0, 0);
+            serverPos.set(0, 0, 0);
+          }, 3000);
+        }
       }
 
       if (msg.type === "chat") {
         setChatMessages((prev) => {
           const id = ++chatIdRef.current;
-          // Keep last 50 messages
-          const next = [...prev.slice(-49), { fromName: msg.fromName, text: msg.text, id }];
-          return next;
+          return [...prev.slice(-49), { fromName: msg.fromName, text: msg.text, id }];
         });
-        // Auto-open chat when a message arrives
         setChatOpen(true);
       }
     };
@@ -314,8 +477,10 @@ export default function GameCanvas({ playerName }: Props) {
     // ---- Send input ----
     function sendInput(inputX: number, inputZ: number, rotY: number) {
       if (ws.readyState !== WebSocket.OPEN) return;
-      const msg: ClientMessage = { type: "input", x: inputX, z: inputZ, rotY };
-      ws.send(JSON.stringify(msg));
+      ws.send(JSON.stringify({
+        type: "input", x: inputX, z: inputZ, rotY,
+        weapon: weaponRef.current,
+      } satisfies ClientMessage));
     }
 
     // ---- Animation loop ----
@@ -329,6 +494,23 @@ export default function GameCanvas({ playerName }: Props) {
       const now = performance.now();
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
+
+      // Weapon model swap for local player
+      const currentWeapon = weaponRef.current;
+      if (localUnarmed && localPistol) {
+        const wantPistol = currentWeapon === "pistol";
+        localUnarmed.visible = !wantPistol;
+        localPistol.visible = wantPistol;
+        characterRoot = wantPistol ? localPistol : localUnarmed;
+        // Keep both roots at the same position
+        if (localUnarmed.visible === false && localPistol) {
+          localPistol.position.copy(localUnarmed.position);
+          localPistol.rotation.copy(localUnarmed.rotation);
+        } else if (localPistol.visible === false && localUnarmed) {
+          localUnarmed.position.copy(localPistol.position);
+          localUnarmed.rotation.copy(localPistol.rotation);
+        }
+      }
 
       const input = new THREE.Vector3(
         (keys.d ? 1 : 0) - (keys.a ? 1 : 0),
@@ -367,22 +549,49 @@ export default function GameCanvas({ playerName }: Props) {
         characterRoot.position.z += (serverPos.z - characterRoot.position.z) * 0.1;
       }
 
+      // Sync inactive local model position so the swap is seamless
+      if (localUnarmed && localPistol) {
+        const active = characterRoot!;
+        const inactive = active === localUnarmed ? localPistol : localUnarmed;
+        inactive.position.copy(active.position);
+        inactive.rotation.copy(active.rotation);
+      }
+
+      // Walk animation — drive whichever local model is active
       const isMoving = input.lengthSq() > 0;
-      if (walkAction) {
-        walkAction.paused = !isMoving;
-        walkAction.setEffectiveWeight(isMoving ? 1 : 0);
+      const activeWalk = currentWeapon === "pistol" ? walkPistol : walkUnarmed;
+      const activeMixer = currentWeapon === "pistol" ? mixerPistol : mixerUnarmed;
+      if (activeWalk) {
+        activeWalk.paused = !isMoving;
+        activeWalk.setEffectiveWeight(isMoving ? 1 : 0);
       }
-      if (mixer) mixer.update(dt);
+      if (activeMixer) activeMixer.update(dt);
 
+      // Remote players
       for (const remote of remotePlayers.values()) {
-        remote.root.position.x += (remote.targetX - remote.root.position.x) * LERP_FACTOR;
-        remote.root.position.z += (remote.targetZ - remote.root.position.z) * LERP_FACTOR;
-        remote.root.rotation.y += (remote.targetRotY - remote.root.rotation.y) * LERP_FACTOR;
-        remote.walkAction.paused = !remote.moving;
-        remote.walkAction.setEffectiveWeight(remote.moving ? 1 : 0);
-        remote.mixer.update(dt);
+        const isPistol = remote.weapon === "pistol";
+        remote.rootUnarmed.visible = !isPistol;
+        remote.rootPistol.visible = isPistol;
+
+        const activeRoot = isPistol ? remote.rootPistol : remote.rootUnarmed;
+        const inactiveRoot = isPistol ? remote.rootUnarmed : remote.rootPistol;
+
+        activeRoot.position.x += (remote.targetX - activeRoot.position.x) * LERP_FACTOR;
+        activeRoot.position.z += (remote.targetZ - activeRoot.position.z) * LERP_FACTOR;
+        activeRoot.rotation.y += (remote.targetRotY - activeRoot.rotation.y) * LERP_FACTOR;
+        inactiveRoot.position.copy(activeRoot.position);
+        inactiveRoot.rotation.copy(activeRoot.rotation);
+
+        const rWalk = isPistol ? remote.walkActionPistol : remote.walkActionUnarmed;
+        const rMixer = isPistol ? remote.mixerPistol : remote.mixerUnarmed;
+        if (rWalk) {
+          rWalk.paused = !remote.moving;
+          rWalk.setEffectiveWeight(remote.moving ? 1 : 0);
+        }
+        rMixer.update(dt);
       }
 
+      // Follow camera
       if (characterRoot) {
         const offset = new THREE.Vector3(d, d * 0.816, d);
         camera.position.copy(characterRoot.position).add(offset);
@@ -419,24 +628,27 @@ export default function GameCanvas({ playerName }: Props) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("resize", onResize);
-      mixer?.stopAllAction();
+      mixerUnarmed?.stopAllAction();
+      mixerPistol?.stopAllAction();
       renderer.dispose();
       for (const remote of remotePlayers.values()) {
-        remote.mixer.stopAllAction();
-        scene.remove(remote.root);
+        remote.mixerUnarmed.stopAllAction();
+        remote.mixerPistol.stopAllAction();
+        scene.remove(remote.rootUnarmed);
+        scene.remove(remote.rootPistol);
       }
+      for (const line of projectileLines.values()) { line.geometry.dispose(); scene.remove(line); }
       if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
       if (mount.contains(labelRenderer.domElement)) mount.removeChild(labelRenderer.domElement);
     };
   }, [playerName]);
 
-  // Auto-scroll chat to bottom when new messages arrive
+  // Auto-scroll chat
   const chatBoxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (chatBoxRef.current) {
-      chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
-    }
+    if (chatBoxRef.current) chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
   }, [chatMessages]);
 
   function submitChat() {
@@ -446,15 +658,70 @@ export default function GameCanvas({ playerName }: Props) {
     setChatInput("");
   }
 
+  const healthPct = Math.max(0, health / MAX_HEALTH);
+
   return (
     <div ref={mountRef} className="w-full h-full relative">
+
+      {/* Crosshair — follows cursor when pistol equipped */}
+      {weapon === "pistol" && !isDead && (
+        <div
+          className="absolute pointer-events-none"
+          style={{ left: cursorPos.x, top: cursorPos.y, transform: "translate(-50%, -50%)" }}
+        >
+          <div className="relative w-6 h-6">
+            <div className="absolute left-1/2 top-0 -translate-x-1/2 w-0.5 h-2 bg-white opacity-90" />
+            <div className="absolute left-1/2 bottom-0 -translate-x-1/2 w-0.5 h-2 bg-white opacity-90" />
+            <div className="absolute top-1/2 left-0 -translate-y-1/2 h-0.5 w-2 bg-white opacity-90" />
+            <div className="absolute top-1/2 right-0 -translate-y-1/2 h-0.5 w-2 bg-white opacity-90" />
+          </div>
+        </div>
+      )}
+
+      {/* Health bar */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none">
+        <div className="w-48 h-3 rounded-full bg-gray-800/70 overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-150"
+            style={{
+              width: `${healthPct * 100}%`,
+              backgroundColor: healthPct > 0.5 ? "#22c55e" : healthPct > 0.25 ? "#eab308" : "#ef4444",
+            }}
+          />
+        </div>
+        <span className="text-white text-xs font-semibold drop-shadow">{health} / {MAX_HEALTH}</span>
+      </div>
+
+      {/* Weapon slot HUD */}
+      <div className="absolute bottom-4 right-4 flex gap-2 pointer-events-none">
+        <div className={`w-12 h-12 rounded border-2 flex items-center justify-center text-xs font-bold
+          ${weapon === "pistol" ? "border-yellow-400 bg-yellow-400/20 text-yellow-300" : "border-gray-600 bg-gray-800/50 text-gray-500"}`}>
+          <span className="flex flex-col items-center gap-0.5">
+            <span>GUN</span>
+            <span className="text-[9px] opacity-70">[1]</span>
+          </span>
+        </div>
+      </div>
+
+      {/* Hit flash */}
+      {showHitFlash && (
+        <div className="absolute inset-0 pointer-events-none bg-red-600/30 animate-pulse" />
+      )}
+
+      {/* Death screen */}
+      {isDead && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/60 pointer-events-none">
+          <div className="text-center">
+            <p className="text-red-400 text-4xl font-bold drop-shadow-lg">YOU DIED</p>
+            <p className="text-white text-sm mt-2 opacity-70">Respawning…</p>
+          </div>
+        </div>
+      )}
+
       {/* Chat UI */}
       <div className="absolute bottom-4 left-4 w-80 flex flex-col gap-1 pointer-events-none">
         {chatOpen && (
-          <div
-            ref={chatBoxRef}
-            className="max-h-48 overflow-y-auto flex flex-col gap-0.5 pointer-events-auto"
-          >
+          <div ref={chatBoxRef} className="max-h-48 overflow-y-auto flex flex-col gap-0.5 pointer-events-auto">
             {chatMessages.map((m) => (
               <div key={m.id} className="text-sm leading-snug">
                 <span className="font-semibold text-blue-300">{m.fromName}: </span>
