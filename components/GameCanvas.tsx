@@ -185,6 +185,13 @@ export default function GameCanvas() {
         }
       }
 
+			if (characterRoot) {
+				const offset = new THREE.Vector3(d, d * 0.816, d);
+
+				camera.position.copy(characterRoot.position).add(offset);
+				camera.lookAt(characterRoot.position.x, characterRoot.position.y + 0.8, characterRoot.position.z);
+			}
+
       renderer.render(scene, camera);
     }
     tick();
