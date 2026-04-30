@@ -1,18 +1,20 @@
 import type { WebSocket } from "ws";
 import type { ClientId, PlayerState, ServerMessage, ClientMessage } from "./types";
 
-const TICK_RATE = 20; // Hz
+const TICK_RATE = 20;
 const TICK_MS = 1000 / TICK_RATE;
-const SPEED = 4; // units/sec — must match client
-const BOUNDS = 19.5; // half of 40-unit ground
+const SPEED = 4;
+const BOUNDS = 19.5;
+const MAX_CHAT_LEN = 200;
 
 interface Client {
   id: ClientId;
   ws: WebSocket;
-  // last validated input from this client
+  name: string;
   inputX: number;
   inputZ: number;
   rotY: number;
+  joined: boolean;
 }
 
 export class Room {
@@ -26,11 +28,11 @@ export class Room {
   }
 
   add(id: ClientId, ws: WebSocket) {
-    this.clients.set(id, { id, ws, inputX: 0, inputZ: 0, rotY: 0 });
-    this.states.set(id, { id, x: 0, y: 0, z: 0, rotY: 0, moving: false });
+    this.clients.set(id, { id, ws, name: "Player", inputX: 0, inputZ: 0, rotY: 0, joined: false });
 
     const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick };
     ws.send(JSON.stringify(handshake));
+    // State is not added until the client sends a "join" with their name
   }
 
   remove(id: ClientId) {
@@ -50,8 +52,17 @@ export class Room {
     const client = this.clients.get(id);
     if (!client) return;
 
+    if (msg.type === "join") {
+      const name = msg.name.trim().slice(0, 24) || "Player";
+      client.name = name;
+      client.joined = true;
+      this.states.set(id, { id, name, x: 0, y: 0, z: 0, rotY: 0, moving: false });
+      return;
+    }
+
+    if (!client.joined) return;
+
     if (msg.type === "input") {
-      // Clamp input magnitude to 1 so clients can't send boosted vectors
       const len = Math.sqrt(msg.x * msg.x + msg.z * msg.z);
       if (len > 1) {
         client.inputX = msg.x / len;
@@ -62,6 +73,13 @@ export class Room {
       }
       client.rotY = msg.rotY;
     }
+
+    if (msg.type === "chat") {
+      const text = msg.text.trim().slice(0, MAX_CHAT_LEN);
+      if (!text) return;
+      const chatMsg: ServerMessage = { type: "chat", fromId: id, fromName: client.name, text };
+      this.broadcast(chatMsg);
+    }
   }
 
   private update() {
@@ -69,6 +87,7 @@ export class Room {
     const dt = TICK_MS / 1000;
 
     for (const [id, client] of this.clients) {
+      if (!client.joined) continue;
       const state = this.states.get(id)!;
       const moving = client.inputX !== 0 || client.inputZ !== 0;
       state.moving = moving;
