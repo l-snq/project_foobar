@@ -97,6 +97,8 @@ export default function GameCanvas({ playerName }: Props) {
   const [chatInput, setChatInput] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
   const [health, setHealth] = useState(MAX_HEALTH);
+  const [maxHealth, setMaxHealth] = useState(MAX_HEALTH);
+  const [onRampage, setOnRampage] = useState(false);
   const [weapon, setWeapon] = useState<Weapon>("none");
   const [isDead, setIsDead] = useState(false);
   const [showHitFlash, setShowHitFlash] = useState(false);
@@ -105,6 +107,7 @@ export default function GameCanvas({ playerName }: Props) {
   const [isReloading, setIsReloading] = useState(false);
   const [scores, setScores] = useState<ScoreEntry[]>([]);
   const [showScoreboard, setShowScoreboard] = useState(false);
+  const [rampageAnnouncement, setRampageAnnouncement] = useState<string | null>(null);
   const chatIdRef = useRef(0);
   const chatInputRef = useRef<HTMLInputElement>(null);
 
@@ -554,6 +557,8 @@ export default function GameCanvas({ playerName }: Props) {
           if (p.id === myId) {
             serverPos.set(p.x, p.y, p.z);
             setHealth(p.health);
+            setMaxHealth(p.maxHealth);
+            setOnRampage(p.onRampage);
             setAmmo(p.ammo);
             if (!p.reloading && isReloadingRef.current === false) setIsReloading(false);
           } else {
@@ -585,14 +590,24 @@ export default function GameCanvas({ playerName }: Props) {
         if (msg.targetId === myId) {
           setIsDead(true);
           setHealth(0);
-          // Server respawns us after 3s; mirror that on the client
+          setOnRampage(false);
           setTimeout(() => {
             setIsDead(false);
             setHealth(MAX_HEALTH);
+            setMaxHealth(MAX_HEALTH);
             if (characterRoot) characterRoot.position.set(0, 0, 0);
             serverPos.set(0, 0, 0);
           }, 3000);
         }
+      }
+
+      if (msg.type === "rampage") {
+        const isMe = msg.playerId === myId;
+        const text = isMe
+          ? "🔥 YOU ARE ON A RAMPAGE!"
+          : `🔥 ${msg.playerName} IS ON A RAMPAGE!`;
+        setRampageAnnouncement(text);
+        setTimeout(() => setRampageAnnouncement(null), 4000);
       }
 
       if (msg.type === "chat") {
@@ -824,7 +839,7 @@ export default function GameCanvas({ playerName }: Props) {
     setChatInput("");
   }
 
-  const healthPct = Math.max(0, health / MAX_HEALTH);
+  const healthPct = Math.max(0, health / maxHealth);
 
   return (
     <div ref={mountRef} className="w-full h-full relative">
@@ -846,16 +861,23 @@ export default function GameCanvas({ playerName }: Props) {
 
       {/* Health bar */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none">
-        <div className="w-48 h-3 rounded-full bg-gray-800/70 overflow-hidden">
+        {onRampage && (
+          <span className="text-orange-400 text-xs font-bold tracking-widest uppercase animate-pulse drop-shadow">
+            ⚡ RAMPAGE ⚡
+          </span>
+        )}
+        <div className={`w-48 h-3 rounded-full overflow-hidden ${onRampage ? "bg-orange-900/70 ring-1 ring-orange-500" : "bg-gray-800/70"}`}>
           <div
             className="h-full rounded-full transition-all duration-150"
             style={{
               width: `${healthPct * 100}%`,
-              backgroundColor: healthPct > 0.5 ? "#22c55e" : healthPct > 0.25 ? "#eab308" : "#ef4444",
+              backgroundColor: onRampage ? "#f97316" : healthPct > 0.5 ? "#22c55e" : healthPct > 0.25 ? "#eab308" : "#ef4444",
             }}
           />
         </div>
-        <span className="text-white text-xs font-semibold drop-shadow">{health} / {MAX_HEALTH}</span>
+        <span className={`text-xs font-semibold drop-shadow ${onRampage ? "text-orange-300" : "text-white"}`}>
+          {health} / {maxHealth}
+        </span>
       </div>
 
       {/* Weapon slot HUD */}
@@ -876,6 +898,15 @@ export default function GameCanvas({ playerName }: Props) {
           </span>
         </div>
       </div>
+
+      {/* Rampage announcement */}
+      {rampageAnnouncement && (
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 pointer-events-none">
+          <div className="bg-orange-600/90 text-white font-black text-xl px-6 py-3 rounded-lg shadow-lg tracking-wide animate-bounce text-center">
+            {rampageAnnouncement}
+          </div>
+        </div>
+      )}
 
       {/* Hit flash */}
       {showHitFlash && (

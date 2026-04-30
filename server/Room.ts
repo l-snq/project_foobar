@@ -21,6 +21,9 @@ const PISTOL_DAMAGE = 25;
 const FIRE_RATE_MS = 400;          // min ms between shots per player
 const MAX_AMMO = 8;
 const RELOAD_MS = 1000;            // matches reload animation duration
+const RAMPAGE_KILLS = 10;
+const RAMPAGE_MAX_HEALTH = 200;
+const RAMPAGE_DAMAGE_MULT = 2;
 
 interface Client {
   id: ClientId;
@@ -34,6 +37,8 @@ interface Client {
   joined: boolean;
   lastShotAt: number;
   reloadingUntil: number; // epoch ms, 0 = not reloading
+  killStreak: number;
+  onRampage: boolean;
 }
 
 interface LiveProjectile extends ProjectileState {
@@ -57,6 +62,7 @@ export class Room {
       id, ws, name: "Player",
       inputX: 0, inputZ: 0, rotY: 0,
       weapon: "none", dancing: false, joined: false, lastShotAt: 0, reloadingUntil: 0,
+      killStreak: 0, onRampage: false,
     });
     const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick };
     ws.send(JSON.stringify(handshake));
@@ -85,7 +91,9 @@ export class Room {
       client.joined = true;
       this.states.set(id, {
         id, name, x: 0, y: 0, z: 0, rotY: 0,
-        moving: false, weapon: "none", health: MAX_HEALTH, dancing: false, ammo: MAX_AMMO, reloading: false,
+        moving: false, weapon: "none",
+        health: MAX_HEALTH, maxHealth: MAX_HEALTH,
+        dancing: false, ammo: MAX_AMMO, reloading: false, onRampage: false,
       });
       this.scores.set(id, { id, name, kills: 0, deaths: 0 });
       return;
@@ -167,6 +175,7 @@ export class Room {
       state.weapon = client.weapon;
       state.dancing = client.dancing;
       state.reloading = client.reloadingUntil > Date.now();
+      state.onRampage = client.onRampage;
 
       if (moving) {
         state.x = Math.max(-BOUNDS, Math.min(BOUNDS, state.x + client.inputX * PLAYER_SPEED * dt));
@@ -201,21 +210,47 @@ export class Room {
         const dist = Math.sqrt(dx * dx + dz * dz);
         if (dist < PROJECTILE_RADIUS + PLAYER_RADIUS) {
           this.projectiles.delete(pid);
-          tstate.health = Math.max(0, tstate.health - PISTOL_DAMAGE);
+
+          const shooterClient = this.clients.get(proj.ownerId);
+          const damage = (shooterClient?.onRampage ? RAMPAGE_DAMAGE_MULT : 1) * PISTOL_DAMAGE;
+          tstate.health = Math.max(0, tstate.health - damage);
           this.broadcast({ type: "hit", targetId: tid, health: tstate.health });
 
           if (tstate.health <= 0) {
             this.broadcast({ type: "died", targetId: tid });
 
+            // Victim score + streak reset
             const victimScore = this.scores.get(tid);
             if (victimScore) victimScore.deaths++;
+            const victimClient = this.clients.get(tid);
+            if (victimClient) {
+              victimClient.killStreak = 0;
+              victimClient.onRampage = false;
+            }
+            tstate.onRampage = false;
+            tstate.maxHealth = MAX_HEALTH;
+
+            // Killer score + streak
             const killerScore = this.scores.get(proj.ownerId);
             if (killerScore) killerScore.kills++;
+            if (shooterClient) {
+              shooterClient.killStreak++;
+              if (shooterClient.killStreak >= RAMPAGE_KILLS && !shooterClient.onRampage) {
+                shooterClient.onRampage = true;
+                const killerState = this.states.get(proj.ownerId);
+                if (killerState) {
+                  killerState.onRampage = true;
+                  killerState.maxHealth = RAMPAGE_MAX_HEALTH;
+                  killerState.health = RAMPAGE_MAX_HEALTH;
+                }
+                this.broadcast({ type: "rampage", playerId: proj.ownerId, playerName: shooterClient.name });
+              }
+            }
 
             setTimeout(() => {
               const s = this.states.get(tid);
               if (!s) return;
-              s.health = MAX_HEALTH;
+              s.health = s.maxHealth;
               s.x = 0;
               s.z = 0;
             }, 3000);
