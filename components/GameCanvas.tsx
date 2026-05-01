@@ -76,6 +76,7 @@ interface RemotePlayer {
   moving: boolean;
   weapon: Weapon;
   health: number;
+  dead: boolean;
 }
 
 export interface ChatMessage {
@@ -287,6 +288,7 @@ export default function GameCanvas({ playerName }: Props) {
     let danceAction: THREE.AnimationAction | null = null;
     let reloadAction: THREE.AnimationAction | null = null;
     let isDancing = false;
+    let localDead = false;
     let characterRoot: THREE.Object3D | null = null; // points to whichever model is active
 
     let serverPos = new THREE.Vector3();
@@ -470,6 +472,7 @@ export default function GameCanvas({ playerName }: Props) {
         moving: state.moving,
         weapon: state.weapon,
         health: state.health,
+        dead: false,
       });
     }
 
@@ -487,6 +490,7 @@ export default function GameCanvas({ playerName }: Props) {
       remote.health = p.health;
       remote.dancing = p.dancing;
       remote.reloading = p.reloading;
+      if (remote.dead && p.health > 0) remote.dead = false;
     }
 
     function removeRemote(id: string) {
@@ -532,6 +536,36 @@ export default function GameCanvas({ playerName }: Props) {
           projectileLines.delete(id);
         }
       }
+    }
+
+    // ---- Particle explosions ----
+    interface Particle { mesh: THREE.Mesh; vel: THREE.Vector3 }
+    interface ParticleSystem { particles: Particle[]; age: number; duration: number }
+    const particleSystems: ParticleSystem[] = [];
+    const SPARK_COLORS = [0xff6600, 0xffaa00, 0xffff00, 0xff3300, 0xffffff, 0xff9900];
+
+    function spawnExplosion(x: number, y: number, z: number) {
+      const particles: Particle[] = [];
+      for (let i = 0; i < 30; i++) {
+        const geo = new THREE.BoxGeometry(0.09, 0.09, 0.09);
+        const mat = new THREE.MeshBasicMaterial({
+          color: SPARK_COLORS[Math.floor(Math.random() * SPARK_COLORS.length)],
+          transparent: true,
+          opacity: 1,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x, y + 0.8, z);
+        const speed = 2 + Math.random() * 5;
+        const angle = Math.random() * Math.PI * 2;
+        const vel = new THREE.Vector3(
+          Math.cos(angle) * speed,
+          1.5 + Math.random() * 5,
+          Math.sin(angle) * speed,
+        );
+        scene.add(mesh);
+        particles.push({ mesh, vel });
+      }
+      particleSystems.push({ particles, age: 0, duration: 1.4 });
     }
 
     // ---- WebSocket ----
@@ -588,16 +622,30 @@ export default function GameCanvas({ playerName }: Props) {
 
       if (msg.type === "died") {
         if (msg.targetId === myId) {
+          if (characterRoot) spawnExplosion(characterRoot.position.x, characterRoot.position.y, characterRoot.position.z);
+          localDead = true;
+          if (localUnarmed) localUnarmed.visible = false;
+          if (localPistol) localPistol.visible = false;
           setIsDead(true);
           setHealth(0);
           setOnRampage(false);
           setTimeout(() => {
+            localDead = false;
             setIsDead(false);
             setHealth(MAX_HEALTH);
             setMaxHealth(MAX_HEALTH);
             if (characterRoot) characterRoot.position.set(0, 0, 0);
             serverPos.set(0, 0, 0);
           }, 3000);
+        } else {
+          const remote = remotePlayers.get(msg.targetId);
+          if (remote) {
+            const root = remote.weapon === "pistol" ? remote.rootPistol : remote.rootUnarmed;
+            spawnExplosion(root.position.x, root.position.y, root.position.z);
+            remote.dead = true;
+            remote.rootUnarmed.visible = false;
+            remote.rootPistol.visible = false;
+          }
         }
       }
 
@@ -645,8 +693,8 @@ export default function GameCanvas({ playerName }: Props) {
       const currentWeapon = weaponRef.current;
       if (localUnarmed && localPistol) {
         const wantPistol = currentWeapon === "pistol";
-        localUnarmed.visible = !wantPistol;
-        localPistol.visible = wantPistol;
+        localUnarmed.visible = !localDead && !wantPistol;
+        localPistol.visible = !localDead && wantPistol;
         characterRoot = wantPistol ? localPistol : localUnarmed;
         // Keep both roots at the same position
         if (localUnarmed.visible === false && localPistol) {
@@ -721,6 +769,7 @@ export default function GameCanvas({ playerName }: Props) {
 
       // Remote players
       for (const remote of remotePlayers.values()) {
+        if (remote.dead) continue;
         // Dancing forces unarmed model
         const isPistol = !remote.dancing && remote.weapon === "pistol";
         remote.rootUnarmed.visible = !isPistol;
@@ -769,6 +818,29 @@ export default function GameCanvas({ playerName }: Props) {
             rWalk.setEffectiveWeight(remote.moving ? 1 : 0);
           }
           rMixer.update(dt);
+        }
+      }
+
+      // Particle explosions
+      for (let i = particleSystems.length - 1; i >= 0; i--) {
+        const ps = particleSystems[i];
+        ps.age += dt;
+        const t = ps.age / ps.duration;
+        if (t >= 1) {
+          for (const p of ps.particles) {
+            p.mesh.geometry.dispose();
+            (p.mesh.material as THREE.MeshBasicMaterial).dispose();
+            scene.remove(p.mesh);
+          }
+          particleSystems.splice(i, 1);
+          continue;
+        }
+        for (const p of ps.particles) {
+          p.vel.y -= 14 * dt;
+          p.mesh.position.x += p.vel.x * dt;
+          p.mesh.position.y += p.vel.y * dt;
+          p.mesh.position.z += p.vel.z * dt;
+          (p.mesh.material as THREE.MeshBasicMaterial).opacity = 1 - t;
         }
       }
 
@@ -821,6 +893,13 @@ export default function GameCanvas({ playerName }: Props) {
         scene.remove(remote.rootPistol);
       }
       for (const line of projectileLines.values()) { line.geometry.dispose(); scene.remove(line); }
+      for (const ps of particleSystems) {
+        for (const p of ps.particles) {
+          p.mesh.geometry.dispose();
+          (p.mesh.material as THREE.MeshBasicMaterial).dispose();
+          scene.remove(p.mesh);
+        }
+      }
       if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
       if (mount.contains(labelRenderer.domElement)) mount.removeChild(labelRenderer.domElement);
     };
