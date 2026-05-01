@@ -929,49 +929,113 @@ export default function GameCanvas({ playerName }: Props) {
           className="absolute pointer-events-none"
           style={{ left: cursorPos.x, top: cursorPos.y, transform: "translate(-50%, -50%)" }}
         >
-          <div className="relative w-6 h-6">
-            <div className="absolute left-1/2 top-0 -translate-x-1/2 w-0.5 h-2 bg-white opacity-90" />
-            <div className="absolute left-1/2 bottom-0 -translate-x-1/2 w-0.5 h-2 bg-white opacity-90" />
-            <div className="absolute top-1/2 left-0 -translate-y-1/2 h-0.5 w-2 bg-white opacity-90" />
-            <div className="absolute top-1/2 right-0 -translate-y-1/2 h-0.5 w-2 bg-white opacity-90" />
+          <div className="relative w-7 h-7">
+            <div className="absolute inset-0 m-auto w-1.5 h-1.5 rounded-full"
+              style={{ background: "#a0ffb8", boxShadow: "0 0 5px rgba(80,255,140,0.9), 0 0 10px rgba(0,200,80,0.5)" }} />
+            <div className="absolute left-1/2 top-0 -translate-x-1/2 w-px h-2.5"
+              style={{ background: "#b8ffc8", boxShadow: "0 0 3px rgba(80,255,140,0.8)" }} />
+            <div className="absolute left-1/2 bottom-0 -translate-x-1/2 w-px h-2.5"
+              style={{ background: "#b8ffc8", boxShadow: "0 0 3px rgba(80,255,140,0.8)" }} />
+            <div className="absolute top-1/2 left-0 -translate-y-1/2 h-px w-2.5"
+              style={{ background: "#b8ffc8", boxShadow: "0 0 3px rgba(80,255,140,0.8)" }} />
+            <div className="absolute top-1/2 right-0 -translate-y-1/2 h-px w-2.5"
+              style={{ background: "#b8ffc8", boxShadow: "0 0 3px rgba(80,255,140,0.8)" }} />
           </div>
         </div>
       )}
 
       {/* Health bar */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none">
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5 pointer-events-none">
         {onRampage && (
-          <span className="text-orange-400 text-xs font-bold tracking-widest uppercase animate-pulse drop-shadow">
+          <span
+            className="text-xs font-bold tracking-widest uppercase animate-pulse"
+            style={{ color: "#ffb347", textShadow: "0 0 10px rgba(255,140,0,0.8)" }}
+          >
             ⚡ RAMPAGE ⚡
           </span>
         )}
-        <div className={`w-48 h-3 rounded-full overflow-hidden ${onRampage ? "bg-orange-900/70 ring-1 ring-orange-500" : "bg-gray-800/70"}`}>
+        <div
+          className="w-52 h-3.5 rounded-full overflow-hidden"
+          style={{
+            background: "linear-gradient(180deg, rgba(0,30,10,0.7) 0%, rgba(0,50,20,0.6) 100%)",
+            border: `1px solid ${onRampage ? "rgba(255,160,50,0.55)" : "rgba(80,220,120,0.4)"}`,
+            boxShadow: onRampage
+              ? "0 0 10px rgba(255,120,0,0.4), inset 0 1px 0 rgba(255,255,255,0.15)"
+              : "0 0 10px rgba(0,200,80,0.25), inset 0 1px 0 rgba(255,255,255,0.15)",
+          }}
+        >
           <div
-            className="h-full rounded-full transition-all duration-150"
+            className="h-full rounded-full transition-all duration-150 relative overflow-hidden"
             style={{
               width: `${healthPct * 100}%`,
-              backgroundColor: onRampage ? "#f97316" : healthPct > 0.5 ? "#22c55e" : healthPct > 0.25 ? "#eab308" : "#ef4444",
+              background: onRampage
+                ? "linear-gradient(180deg, #ffb347 0%, #e06800 100%)"
+                : healthPct > 0.5
+                ? "linear-gradient(180deg, #5ef5b0 0%, #00b87a 100%)"
+                : healthPct > 0.25
+                ? "linear-gradient(180deg, #ffe066 0%, #d4a000 100%)"
+                : "linear-gradient(180deg, #ff8080 0%, #c00000 100%)",
+              boxShadow: onRampage
+                ? "0 0 8px rgba(255,140,0,0.7)"
+                : healthPct > 0.5
+                ? "0 0 8px rgba(0,220,130,0.6)"
+                : "0 0 8px rgba(255,80,80,0.6)",
             }}
-          />
+          >
+            <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-full"
+              style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.4) 0%, transparent 100%)" }} />
+          </div>
         </div>
-        <span className={`text-xs font-semibold drop-shadow ${onRampage ? "text-orange-300" : "text-white"}`}>
+        <span
+          className="text-xs font-semibold"
+          style={{
+            color: onRampage ? "#ffb347" : "rgba(200,255,220,0.9)",
+            textShadow: "0 1px 3px rgba(0,0,0,0.7)",
+          }}
+        >
           {health} / {maxHealth}
         </span>
       </div>
 
       {/* Weapon slot HUD */}
-      <div className="absolute bottom-4 right-4 flex flex-col items-end gap-1 pointer-events-none">
+      <div className="absolute bottom-4 right-4 flex flex-col items-end gap-2 pointer-events-none">
         {weapon === "pistol" && (
-          <div className="text-sm font-bold tracking-wider">
+          <div
+            className="px-3 py-1 rounded-xl text-sm font-bold tracking-wider"
+            style={{
+              background: "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(80,200,120,0.08) 100%)",
+              border: "1px solid rgba(80,220,120,0.35)",
+              backdropFilter: "blur(10px)",
+              boxShadow: "0 2px 10px rgba(0,160,60,0.3), inset 0 1px 0 rgba(255,255,255,0.3)",
+            }}
+          >
             {isReloading
-              ? <span className="text-yellow-300 animate-pulse">RELOADING…</span>
-              : <span className={ammo === 0 ? "text-red-400" : "text-white"}>{ammo} / 8</span>
+              ? <span className="animate-pulse" style={{ color: "#ffe066", textShadow: "0 0 8px rgba(255,220,0,0.7)" }}>RELOADING…</span>
+              : <span style={{ color: ammo === 0 ? "#ff8080" : "rgba(200,255,220,0.95)" }}>{ammo} / 8</span>
             }
           </div>
         )}
-        <div className={`w-12 h-12 rounded border-2 flex items-center justify-center text-xs font-bold
-          ${weapon === "pistol" ? "border-yellow-400 bg-yellow-400/20 text-yellow-300" : "border-gray-600 bg-gray-800/50 text-gray-500"}`}>
-          <span className="flex flex-col items-center gap-0.5">
+        <div
+          className="w-14 h-14 rounded-2xl flex items-center justify-center text-xs font-bold relative overflow-hidden"
+          style={{
+            background: weapon === "pistol"
+              ? "linear-gradient(160deg, rgba(80,220,120,0.22) 0%, rgba(0,140,60,0.18) 100%)"
+              : "linear-gradient(160deg, rgba(255,255,255,0.08) 0%, rgba(40,80,50,0.08) 100%)",
+            border: `1px solid ${weapon === "pistol" ? "rgba(80,220,120,0.5)" : "rgba(80,150,100,0.22)"}`,
+            backdropFilter: "blur(10px)",
+            boxShadow: weapon === "pistol"
+              ? "0 0 16px rgba(0,200,80,0.35), inset 0 1px 0 rgba(255,255,255,0.35)"
+              : "inset 0 1px 0 rgba(255,255,255,0.1)",
+          }}
+        >
+          <div
+            className="absolute inset-x-0 top-0 h-1/2 rounded-t-2xl pointer-events-none"
+            style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.2) 0%, transparent 100%)" }}
+          />
+          <span
+            className="relative flex flex-col items-center gap-0.5"
+            style={{ color: weapon === "pistol" ? "#a0ffb8" : "rgba(150,200,160,0.45)" }}
+          >
             <span>GUN</span>
             <span className="text-[9px] opacity-70">[1]</span>
           </span>
@@ -981,25 +1045,55 @@ export default function GameCanvas({ playerName }: Props) {
       {/* Rampage announcement */}
       {rampageAnnouncement && (
         <div className="absolute top-24 left-1/2 -translate-x-1/2 pointer-events-none">
-          <div className="bg-orange-600/90 text-white font-black text-xl px-6 py-3 rounded-lg shadow-lg tracking-wide animate-bounce text-center">
-            {rampageAnnouncement}
+          <div
+            className="font-black text-xl px-7 py-3 rounded-2xl tracking-wide animate-bounce text-center relative overflow-hidden"
+            style={{
+              background: "linear-gradient(160deg, rgba(255,180,50,0.28) 0%, rgba(200,80,0,0.22) 100%)",
+              border: "1px solid rgba(255,180,50,0.5)",
+              backdropFilter: "blur(14px)",
+              boxShadow: "0 0 30px rgba(255,140,0,0.5), inset 0 1px 0 rgba(255,255,255,0.35)",
+              color: "#ffe0a0",
+              textShadow: "0 0 15px rgba(255,160,0,0.8)",
+            }}
+          >
+            <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-2xl pointer-events-none"
+              style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.2) 0%, transparent 100%)" }} />
+            <span className="relative">{rampageAnnouncement}</span>
           </div>
         </div>
       )}
 
       {/* Hit flash */}
       {showHitFlash && (
-        <div className="absolute inset-0 pointer-events-none bg-red-600/30 animate-pulse" />
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: "radial-gradient(ellipse at center, transparent 25%, rgba(220,0,0,0.5) 100%)" }}
+        />
       )}
 
       {/* Scoreboard — hold Tab */}
       {showScoreboard && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="bg-black/80 rounded-lg px-6 py-4 min-w-72">
-            <h2 className="text-white text-center text-lg font-bold mb-3 tracking-widest uppercase">Scoreboard</h2>
-            <table className="w-full text-sm">
+          <div
+            className="rounded-3xl px-7 py-5 min-w-72 relative overflow-hidden"
+            style={{
+              background: "linear-gradient(160deg, rgba(255,255,255,0.18) 0%, rgba(60,180,100,0.1) 100%)",
+              border: "1px solid rgba(255,255,255,0.3)",
+              backdropFilter: "blur(22px)",
+              boxShadow: "0 8px 40px rgba(0,120,50,0.5), inset 0 1px 0 rgba(255,255,255,0.4)",
+            }}
+          >
+            <div className="absolute inset-x-0 top-0 h-1/3 rounded-t-3xl pointer-events-none"
+              style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.2) 0%, transparent 100%)" }} />
+            <h2
+              className="relative text-center text-lg font-bold mb-3 tracking-widest uppercase"
+              style={{ color: "#a0ffb8", textShadow: "0 0 15px rgba(0,220,100,0.6)" }}
+            >
+              Scoreboard
+            </h2>
+            <table className="relative w-full text-sm">
               <thead>
-                <tr className="text-gray-400 border-b border-gray-600">
+                <tr style={{ color: "rgba(150,230,180,0.7)", borderBottom: "1px solid rgba(80,200,120,0.25)" }}>
                   <th className="text-left pb-1 font-semibold">Player</th>
                   <th className="text-center pb-1 font-semibold w-16">Kills</th>
                   <th className="text-center pb-1 font-semibold w-16">Deaths</th>
@@ -1009,37 +1103,64 @@ export default function GameCanvas({ playerName }: Props) {
                 {[...scores]
                   .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
                   .map((s) => (
-                    <tr key={s.id} className={s.id === myIdRef.current ? "text-blue-300" : "text-white"}>
+                    <tr key={s.id} style={{ color: s.id === myIdRef.current ? "#7effc0" : "rgba(220,255,235,0.9)" }}>
                       <td className="py-0.5">{s.name}</td>
-                      <td className="text-center text-green-400 font-bold">{s.kills}</td>
-                      <td className="text-center text-red-400">{s.deaths}</td>
+                      <td className="text-center font-bold" style={{ color: "#5ef5a0" }}>{s.kills}</td>
+                      <td className="text-center" style={{ color: "#ff8080" }}>{s.deaths}</td>
                     </tr>
                   ))}
               </tbody>
             </table>
-            <p className="text-gray-500 text-xs text-center mt-3">Hold Tab to view</p>
+            <p className="relative text-xs text-center mt-3" style={{ color: "rgba(150,220,170,0.5)" }}>Hold Tab to view</p>
           </div>
         </div>
       )}
 
       {/* Death screen */}
       {isDead && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/60 pointer-events-none">
-          <div className="text-center">
-            <p className="text-red-400 text-4xl font-bold drop-shadow-lg">YOU DIED</p>
-            <p className="text-white text-sm mt-2 opacity-70">Respawning…</p>
+        <div
+          className="absolute inset-0 flex items-center justify-center pointer-events-none"
+          style={{ background: "radial-gradient(ellipse at center, rgba(0,0,0,0.3) 0%, rgba(0,0,30,0.72) 100%)" }}
+        >
+          <div
+            className="text-center px-10 py-7 rounded-3xl relative overflow-hidden"
+            style={{
+              background: "linear-gradient(160deg, rgba(200,30,30,0.22) 0%, rgba(80,0,0,0.32) 100%)",
+              border: "1px solid rgba(255,100,100,0.35)",
+              backdropFilter: "blur(18px)",
+              boxShadow: "0 0 50px rgba(200,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.2)",
+            }}
+          >
+            <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-3xl pointer-events-none"
+              style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, transparent 100%)" }} />
+            <p
+              className="relative text-4xl font-bold"
+              style={{ color: "#ff8080", textShadow: "0 0 25px rgba(255,80,80,0.8), 0 2px 6px rgba(0,0,0,0.7)" }}
+            >
+              YOU DIED
+            </p>
+            <p className="relative text-sm mt-2" style={{ color: "rgba(200,255,220,0.6)" }}>Respawning…</p>
           </div>
         </div>
       )}
 
       {/* Chat UI */}
-      <div className="absolute bottom-4 left-4 w-80 flex flex-col gap-1 pointer-events-none">
+      <div className="absolute bottom-4 left-4 w-80 flex flex-col gap-1.5 pointer-events-none">
         {chatOpen && (
-          <div ref={chatBoxRef} className="max-h-48 overflow-y-auto flex flex-col gap-0.5 pointer-events-auto">
+          <div
+            ref={chatBoxRef}
+            className="max-h-48 overflow-y-auto flex flex-col gap-0.5 rounded-2xl px-3 py-2 pointer-events-auto"
+            style={{
+              background: "linear-gradient(160deg, rgba(255,255,255,0.12) 0%, rgba(60,180,100,0.07) 100%)",
+              border: "1px solid rgba(255,255,255,0.2)",
+              backdropFilter: "blur(16px)",
+              boxShadow: "0 4px 20px rgba(0,120,50,0.3), inset 0 1px 0 rgba(255,255,255,0.25)",
+            }}
+          >
             {chatMessages.map((m) => (
               <div key={m.id} className="text-sm leading-snug">
-                <span className="font-semibold text-blue-300">{m.fromName}: </span>
-                <span className="text-white drop-shadow">{m.text}</span>
+                <span className="font-semibold" style={{ color: "#7effc0" }}>{m.fromName}: </span>
+                <span style={{ color: "rgba(220,255,235,0.9)" }}>{m.text}</span>
               </div>
             ))}
           </div>
@@ -1047,7 +1168,13 @@ export default function GameCanvas({ playerName }: Props) {
         <div className="flex gap-2 pointer-events-auto">
           <input
             ref={chatInputRef}
-            className={`flex-1 px-3 py-1.5 rounded text-sm bg-black/60 text-white placeholder-gray-400 outline-none transition-opacity ${chatOpen ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+            className={`flex-1 px-3 py-1.5 rounded-xl text-sm outline-none transition-opacity ${chatOpen ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+            style={{
+              background: "linear-gradient(180deg, rgba(0,30,10,0.6) 0%, rgba(0,50,20,0.5) 100%)",
+              border: "1px solid rgba(80,220,120,0.35)",
+              boxShadow: "inset 0 2px 4px rgba(0,0,0,0.35), 0 1px 0 rgba(255,255,255,0.1)",
+              color: "rgba(220,255,235,0.95)",
+            }}
             placeholder="Press Enter to chat…"
             maxLength={200}
             value={chatInput}
@@ -1060,7 +1187,14 @@ export default function GameCanvas({ playerName }: Props) {
           />
           {!chatOpen && (
             <button
-              className="px-3 py-1.5 rounded text-xs bg-black/50 text-gray-300 hover:bg-black/70 pointer-events-auto"
+              className="px-3 py-1.5 rounded-xl text-xs pointer-events-auto relative overflow-hidden"
+              style={{
+                background: "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(60,180,100,0.1) 100%)",
+                border: "1px solid rgba(80,220,120,0.35)",
+                backdropFilter: "blur(10px)",
+                color: "rgba(200,255,220,0.8)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
+              }}
               onClick={() => { setChatOpen(true); setTimeout(() => chatInputRef.current?.focus(), 0); }}
             >
               Chat [Enter]
