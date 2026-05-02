@@ -28,7 +28,7 @@ const RAMPAGE_DAMAGE_MULT = 2;
 
 // Must match object positions in GameCanvas.tsx
 const TREE_RADIUS  = 0.4;
-const HOUSE_RADIUS = 1.5;
+const HOUSE_RADIUS = 0.75;
 const MAX_STATIC_RADIUS = Math.max(TREE_RADIUS, HOUSE_RADIUS);
 
 // Cell size 2 on a 40×40 map → 20×20 grid.

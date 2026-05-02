@@ -225,12 +225,42 @@ export default function GameCanvas({ playerName }: Props) {
       reloadAction.play();
     }
 
+    // ---- Debug wireframes ----
+    const CLIENT_PLAYER_RADIUS = 0.25;
+    interface ClientCollider { x: number; z: number; radius: number }
+    const clientColliders: ClientCollider[] = [
+      ...( [[-8,-8],[8,-8],[-8,8],[8,8],[0,-14],[0,14],[-14,0],[14,0],[-12,12],[12,-12]] as [number,number][] )
+        .map(([x,z]) => ({ x, z, radius: 0.4 })),
+      ...( [[-16,-16],[0,-16],[16,-16],[-16,0],[16,0],[-16,16],[0,16],[16,16],
+            [-10,-10],[10,-10],[-10,10],[10,10],[-5,-5],[5,-5],[-5,5],[5,5],
+            [-10,0],[10,0],[0,-10],[0,10]] as [number,number][] )
+        .map(([x,z]) => ({ x, z, radius: 1.5 })),
+    ];
+
+    let debugVisible = false;
+    const debugMeshes: THREE.Mesh[] = [];
+    for (const col of clientColliders) {
+      const geo = new THREE.CylinderGeometry(col.radius, col.radius, 2, 16);
+      const mat = new THREE.MeshBasicMaterial({ color: col.radius > 1 ? 0xff4400 : 0x00ff88, wireframe: true });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(col.x, 1, col.z);
+      mesh.visible = false;
+      scene.add(mesh);
+      debugMeshes.push(mesh);
+    }
+
     // ---- Input ----
     const keys = { w: false, a: false, s: false, d: false };
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Tab") {
         e.preventDefault();
         setShowScoreboard(true);
+        return;
+      }
+      if (e.key === "x" || e.key === "X") {
+        if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+        debugVisible = !debugVisible;
+        for (const m of debugMeshes) m.visible = debugVisible;
         return;
       }
       if (e.key === "t" || e.key === "T") {
@@ -827,6 +857,19 @@ export default function GameCanvas({ playerName }: Props) {
         }
         characterRoot.position.x += (serverPos.x - characterRoot.position.x) * 0.1;
         characterRoot.position.z += (serverPos.z - characterRoot.position.z) * 0.1;
+
+        // Client-side collision (mirrors server) so prediction doesn't walk through objects
+        for (const col of clientColliders) {
+          const dx = characterRoot.position.x - col.x;
+          const dz = characterRoot.position.z - col.z;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          const minDist = col.radius + CLIENT_PLAYER_RADIUS;
+          if (dist < minDist && dist > 0) {
+            const push = (minDist - dist) / dist;
+            characterRoot.position.x += dx * push;
+            characterRoot.position.z += dz * push;
+          }
+        }
       }
 
       // Sync inactive local model position so the swap is seamless
@@ -996,6 +1039,7 @@ export default function GameCanvas({ playerName }: Props) {
         scene.remove(remote.rootPistol);
       }
       for (const line of projectileLines.values()) { line.geometry.dispose(); scene.remove(line); }
+      for (const m of debugMeshes) { m.geometry.dispose(); scene.remove(m); }
       for (const ps of particleSystems) {
         for (const p of ps.particles) {
           p.mesh.geometry.dispose();
