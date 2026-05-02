@@ -188,7 +188,7 @@ export default function GameCanvas({ playerName }: Props) {
     // ---- Lights ----
     scene.add(new THREE.AmbientLight(0xd0e8ff, 0.6));
     const sun = new THREE.DirectionalLight(0xfff5e0, 1.2);
-    sun.position.set(8, 20, 8);
+    sun.position.set(28, 20, 8);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 0.5;
