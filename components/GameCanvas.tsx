@@ -159,6 +159,8 @@ export default function GameCanvas({ playerName }: Props) {
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.setClearColor(0x000000, 0);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mount.appendChild(renderer.domElement);
 
     // ---- CSS2D label renderer ----
@@ -184,12 +186,25 @@ export default function GameCanvas({ playerName }: Props) {
     camera.lookAt(0, 0.8, 0);
 
     // ---- Lights ----
-    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.0);
-    sun.position.set(8, 16, 8);
+    scene.add(new THREE.AmbientLight(0xd0e8ff, 0.6));
+    const sun = new THREE.DirectionalLight(0xfff5e0, 1.2);
+    sun.position.set(8, 20, 8);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.near = 0.5;
+    sun.shadow.camera.far = 80;
+    sun.shadow.camera.left = -28;
+    sun.shadow.camera.right = 28;
+    sun.shadow.camera.top = 28;
+    sun.shadow.camera.bottom = -28;
+    sun.shadow.bias = -0.001;
     scene.add(sun);
 
-    scene.add(buildGround());
+    const groundGroup = buildGround();
+    groundGroup.traverse((child) => {
+      if (child instanceof THREE.Mesh) child.receiveShadow = true;
+    });
+    scene.add(groundGroup);
 
     // ---- Transform gizmo ----
     const transformControls = new TransformControls(camera, renderer.domElement);
@@ -499,6 +514,7 @@ export default function GameCanvas({ playerName }: Props) {
       const model = gltf.scene;
       model.scale.setScalar(0.48);
       model.visible = true;
+      model.traverse((child) => { if (child instanceof THREE.Mesh) child.castShadow = true; });
       scene.add(model);
       localUnarmed = model;
       characterRoot = model;
@@ -545,6 +561,7 @@ export default function GameCanvas({ playerName }: Props) {
       const model = gltf.scene;
       model.scale.setScalar(0.48);
       model.visible = false; // hidden until player presses 1
+      model.traverse((child) => { if (child instanceof THREE.Mesh) child.castShadow = true; });
       scene.add(model);
       localPistol = model;
       model.add(makeNameLabel(playerName, true));
@@ -587,7 +604,11 @@ export default function GameCanvas({ playerName }: Props) {
           if (rotations) obj.rotation.y = rotations[i] ?? 0;
           scene.add(obj);
           obj.traverse((child) => {
-            if (child instanceof THREE.Mesh) occluders.push(child);
+            if (child instanceof THREE.Mesh) {
+              occluders.push(child);
+              child.castShadow = true;
+              child.receiveShadow = true;
+            }
           });
         });
       });
@@ -702,6 +723,9 @@ export default function GameCanvas({ playerName }: Props) {
       };
       const root = await loadGltfCached(data.url);
       applyPlacedTransform(data, root);
+      root.traverse((child) => {
+        if (child instanceof THREE.Mesh) { child.castShadow = true; child.receiveShadow = true; }
+      });
       scene.add(root);
       const hitboxMesh = makeHitboxMesh(data);
       scene.add(hitboxMesh);
@@ -830,6 +854,7 @@ export default function GameCanvas({ playerName }: Props) {
         model.position.set(state.x, state.y, state.z);
         model.rotation.y = state.rotY;
         model.visible = visible;
+        model.traverse((child) => { if (child instanceof THREE.Mesh) child.castShadow = true; });
         scene.add(model);
         const mx = new THREE.AnimationMixer(model);
         const clip = tpl.animations[0]?.clone();
@@ -1687,7 +1712,7 @@ export default function GameCanvas({ playerName }: Props) {
       )}
 
       {/* Import model button + placement mode */}
-      <div className="absolute bottom-24 right-4 flex flex-col items-end gap-2 pointer-events-auto">
+      <div className="absolute bottom-54 right-4 flex flex-col items-end gap-2 pointer-events-auto">
         {inPlacementMode ? (
           <div className="flex flex-col items-end gap-2">
             <div
