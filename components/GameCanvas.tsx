@@ -234,14 +234,17 @@ export default function GameCanvas({ playerName }: Props) {
       ...( [[-16,-16],[0,-16],[16,-16],[-16,0],[16,0],[-16,16],[0,16],[16,16],
             [-10,-10],[10,-10],[-10,10],[10,10],[-5,-5],[5,-5],[-5,5],[5,5],
             [-10,0],[10,0],[0,-10],[0,10]] as [number,number][] )
-        .map(([x,z]) => ({ x, z, radius: 1.5 })),
+        .map(([x,z]) => ({ x, z, radius: 0.75 })),
     ];
 
     let debugVisible = false;
     const debugMeshes: THREE.Mesh[] = [];
     for (const col of clientColliders) {
-      const geo = new THREE.CylinderGeometry(col.radius, col.radius, 2, 16);
-      const mat = new THREE.MeshBasicMaterial({ color: col.radius > 1 ? 0xff4400 : 0x00ff88, wireframe: true });
+      const isHouse = col.radius > 0.5;
+      const geo = isHouse
+        ? new THREE.BoxGeometry(col.radius * 2, 2, col.radius * 2)
+        : new THREE.CylinderGeometry(col.radius, col.radius, 2, 16);
+      const mat = new THREE.MeshBasicMaterial({ color: isHouse ? 0xff4400 : 0x00ff88, wireframe: true });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(col.x, 1, col.z);
       mesh.visible = false;
@@ -531,6 +534,7 @@ export default function GameCanvas({ playerName }: Props) {
 
       const label = makeNameLabel(state.name);
       unarmed.root.add(label);
+      pistol.root.add(makeNameLabel(state.name));
 
       // Set up dance on the unarmed mixer (only unarmed model has the clip)
       let remoteDanceAction: THREE.AnimationAction | null = null;
