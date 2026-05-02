@@ -19,7 +19,7 @@
     "rotY": 0,
     "scale": 1,
     "hitboxShape": "cylinder",
-    "hitboxRadius": 0.45,
+    "hitboxRadius": 0.1,
     "hitboxOffsetX": 0,
     "hitboxOffsetZ": 0
   },
@@ -33,6 +33,19 @@
     "scale": 1,
     "hitboxShape": "box",
     "hitboxRadius": 0.15,
+    "hitboxOffsetX": 0,
+    "hitboxOffsetZ": 0
+  },
+  {
+    "id": "95dfebc0-e78a-4332-a8a2-eaadb4f9493a",
+    "url": "/uploads/40b1f2b9-06af-4d17-80f2-dfeabab9fe90.gltf",
+    "placedBy": "42faee03-43b6-44c6-b709-2b879221796c",
+    "x": -1.429458159787142,
+    "z": 1.535171648926907,
+    "rotY": -4.71553057303828,
+    "scale": 1,
+    "hitboxShape": "cylinder",
+    "hitboxRadius": 1,
     "hitboxOffsetX": 0,
     "hitboxOffsetZ": 0
   }

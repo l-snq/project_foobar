@@ -159,6 +159,7 @@ export default function GameCanvas({ playerName }: Props) {
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.setClearColor(0x000000, 0);
+    renderer.domElement.tabIndex = -1;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mount.appendChild(renderer.domElement);
@@ -330,7 +331,7 @@ export default function GameCanvas({ playerName }: Props) {
     }
 
     // ---- Input ----
-    const keys = { w: false, a: false, s: false, d: false };
+    const keys = { w: false, a: false, s: false, d: false, q: false, e: false };
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Tab") {
         e.preventDefault();
@@ -354,9 +355,10 @@ export default function GameCanvas({ playerName }: Props) {
 
       // Escape — cancel placement mode
       if (e.key === "Escape") {
-        if (placementUrlRef.current) exitPlacementMode();
+        if (placementUrlRef.current) { e.preventDefault(); exitPlacementMode(); }
         return;
       }
+
 
       // Ctrl+C / Ctrl+V — copy/paste placed objects
       if ((e.ctrlKey || e.metaKey) && e.key === "c") {
@@ -772,6 +774,7 @@ export default function GameCanvas({ playerName }: Props) {
       placementUrlRef.current = null;
       placementPreset = null;
       setInPlacementMode(false);
+      renderer.domElement.focus();
     }
 
     function confirmPlacement() {
@@ -783,7 +786,7 @@ export default function GameCanvas({ playerName }: Props) {
         url: placementUrlRef.current,
         x: placementGhost.position.x,
         z: placementGhost.position.z,
-        rotY:            placementPreset?.rotY            ?? 0,
+        rotY:            placementGhost.rotation.y,
         scale:           placementPreset?.scale           ?? 1,
         hitboxShape:     placementPreset?.hitboxShape     ?? "cylinder",
         hitboxRadius:    placementPreset?.hitboxRadius    ?? 1.0,
@@ -1389,8 +1392,10 @@ export default function GameCanvas({ playerName }: Props) {
         }
       }
 
-      // Placement ghost follows cursor
+      // Placement ghost follows cursor, Q/E rotates it
       if (placementGhost) {
+        if (keys.q) placementGhost.rotation.y -= Math.PI * dt;
+        if (keys.e) placementGhost.rotation.y += Math.PI * dt;
         raycaster.setFromCamera(mouse, camera);
         const ghostHit = new THREE.Vector3();
         if (raycaster.ray.intersectPlane(groundPlane, ghostHit)) {
@@ -1726,7 +1731,7 @@ export default function GameCanvas({ playerName }: Props) {
                 boxShadow: "0 0 16px rgba(0,200,80,0.3)",
               }}
             >
-              Click to place
+              Click to place · Q/E to rotate · Esc to cancel
             </div>
             <button
               className="px-3 py-1.5 rounded-xl text-xs font-semibold"
