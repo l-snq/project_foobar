@@ -4,6 +4,7 @@ import type {
   ClientId, PlayerState, ProjectileState, ScoreEntry,
   ServerMessage, ClientMessage, Weapon,
 } from "./types";
+import { SpatialGrid } from "./SpatialGrid";
 
 const TICK_RATE = 20;
 const TICK_MS = 1000 / TICK_RATE;
@@ -27,11 +28,15 @@ const RAMPAGE_DAMAGE_MULT = 2;
 
 // Must match TREE_POSITIONS in GameCanvas.tsx
 const TREE_RADIUS = 0.4;
-const TREES: { x: number; z: number }[] = [
-  { x: -8,  z: -8  }, { x:  8, z: -8  }, { x: -8, z:  8  }, { x:  8, z:  8  },
-  { x:  0,  z: -14 }, { x:  0, z:  14 }, { x: -14, z: 0  }, { x: 14, z:  0  },
-  { x: -12, z:  12 }, { x:  12, z: -12 },
-];
+// Cell size 2 on a 40×40 map → 20×20 grid. A query with radius ~0.7 touches ≤4 cells.
+const staticGrid = new SpatialGrid(2, -20, -20, 20, 20);
+for (const [x, z] of [
+  [-8, -8], [8, -8], [-8, 8], [8, 8],
+  [0, -14], [0, 14], [-14, 0], [14, 0],
+  [-12, 12], [12, -12],
+] as [number, number][]) {
+  staticGrid.insert({ x, z, radius: TREE_RADIUS });
+}
 
 interface Client {
   id: ClientId;
@@ -189,12 +194,12 @@ export class Room {
         state.x = Math.max(-BOUNDS, Math.min(BOUNDS, state.x + client.inputX * PLAYER_SPEED * dt));
         state.z = Math.max(-BOUNDS, Math.min(BOUNDS, state.z + client.inputZ * PLAYER_SPEED * dt));
 
-        // Push player out of tree colliders
-        for (const tree of TREES) {
-          const dx = state.x - tree.x;
-          const dz = state.z - tree.z;
+        // Push player out of static colliders
+        for (const col of staticGrid.query(state.x, state.z, PLAYER_RADIUS + TREE_RADIUS)) {
+          const dx = state.x - col.x;
+          const dz = state.z - col.z;
           const dist = Math.sqrt(dx * dx + dz * dz);
-          const minDist = TREE_RADIUS + PLAYER_RADIUS;
+          const minDist = col.radius + PLAYER_RADIUS;
           if (dist < minDist && dist > 0) {
             const push = (minDist - dist) / dist;
             state.x += dx * push;
@@ -221,13 +226,13 @@ export class Room {
         continue;
       }
 
-      // Hit a tree
-      const hitTree = TREES.some((tree) => {
-        const dx = proj.x - tree.x;
-        const dz = proj.z - tree.z;
-        return dx * dx + dz * dz < (TREE_RADIUS + PROJECTILE_RADIUS) ** 2;
+      // Hit a static collider
+      const hitStatic = staticGrid.query(proj.x, proj.z, PROJECTILE_RADIUS + TREE_RADIUS).some((col) => {
+        const dx = proj.x - col.x;
+        const dz = proj.z - col.z;
+        return dx * dx + dz * dz < (col.radius + PROJECTILE_RADIUS) ** 2;
       });
-      if (hitTree) {
+      if (hitStatic) {
         this.projectiles.delete(pid);
         continue;
       }
