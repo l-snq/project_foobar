@@ -2,6 +2,20 @@ export type ClientId = string;
 
 export type Weapon = "none" | "pistol";
 
+export interface PlacedObject {
+  id: string;
+  url: string;        // e.g. "/uploads/uuid.glb"
+  placedBy: ClientId;
+  x: number;
+  z: number;
+  rotY: number;
+  scale: number;
+  hitboxShape: "cylinder" | "box";
+  hitboxRadius: number; // circle radius, or half-extent of square box
+  hitboxOffsetX: number;
+  hitboxOffsetZ: number;
+}
+
 export interface PlayerState {
   id: ClientId;
   name: string;
@@ -35,6 +49,9 @@ export type ClientMessage =
   | { type: "shoot"; dirX: number; dirZ: number }
   | { type: "reload" }
   | { type: "chat"; text: string }
+  | { type: "placeObject"; url: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number }
+  | { type: "moveObject"; id: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number }
+  | { type: "deleteObject"; id: string }
 
 export interface ScoreEntry {
   id: ClientId;
@@ -52,3 +69,7 @@ export type ServerMessage =
   | { type: "died"; targetId: ClientId }
   | { type: "rampage"; playerId: ClientId; playerName: string }
   | { type: "chat"; fromId: ClientId; fromName: string; text: string }
+  | { type: "objectList"; objects: PlacedObject[] }
+  | { type: "objectPlaced"; object: PlacedObject }
+  | { type: "objectMoved"; object: PlacedObject }
+  | { type: "objectDeleted"; id: string }

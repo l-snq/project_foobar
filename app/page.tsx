@@ -50,7 +50,7 @@ export default function Home() {
           className="relative text-white text-3xl font-bold text-center tracking-wide"
           style={{ textShadow: "0 0 24px rgba(80,255,140,0.9), 0 2px 6px rgba(0,0,0,0.6)" }}
         >
-          project_foobar
+         club2k 
         </h1>
 
         <input

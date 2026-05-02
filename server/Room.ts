@@ -1,8 +1,10 @@
 import { randomUUID } from "crypto";
+import { readFileSync, writeFileSync } from "fs";
+import { join } from "path";
 import type { WebSocket } from "ws";
 import type {
   ClientId, PlayerState, ProjectileState, ScoreEntry,
-  ServerMessage, ClientMessage, Weapon,
+  ServerMessage, ClientMessage, Weapon, PlacedObject,
 } from "./types";
 import { SpatialGrid } from "./SpatialGrid";
 
@@ -30,6 +32,8 @@ const RAMPAGE_DAMAGE_MULT = 2;
 const TREE_RADIUS  = 0.4;
 const HOUSE_RADIUS = 0.75;
 const MAX_STATIC_RADIUS = Math.max(TREE_RADIUS, HOUSE_RADIUS);
+
+const OBJECTS_FILE = join(process.cwd(), "placed_objects.json");
 
 // Cell size 2 on a 40×40 map → 20×20 grid.
 // Query with radius (objectRadius + MAX_STATIC_RADIUS) touches only a handful of cells.
@@ -75,11 +79,16 @@ export class Room {
   private states = new Map<ClientId, PlayerState>();
   private scores = new Map<ClientId, ScoreEntry>();
   private projectiles = new Map<string, LiveProjectile>();
+  private placedObjects = new Map<string, PlacedObject>();
   private tick = 0;
   private interval: ReturnType<typeof setInterval> | null = null;
 
   constructor(readonly id: string) {
     this.interval = setInterval(() => this.update(), TICK_MS);
+    try {
+      const data = JSON.parse(readFileSync(OBJECTS_FILE, "utf8")) as PlacedObject[];
+      for (const obj of data) this.placedObjects.set(obj.id, obj);
+    } catch { /* file doesn't exist yet, start empty */ }
   }
 
   add(id: ClientId, ws: WebSocket) {
@@ -91,6 +100,8 @@ export class Room {
     });
     const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick };
     ws.send(JSON.stringify(handshake));
+    const objList: ServerMessage = { type: "objectList", objects: Array.from(this.placedObjects.values()) };
+    ws.send(JSON.stringify(objList));
   }
 
   remove(id: ClientId) {
@@ -182,6 +193,65 @@ export class Room {
       if (!text) return;
       this.broadcast({ type: "chat", fromId: id, fromName: client.name, text });
     }
+
+    if (msg.type === "placeObject") {
+      if (
+        typeof msg.url !== "string" ||
+        !msg.url.startsWith("/uploads/") ||
+        (!msg.url.endsWith(".gltf") && !msg.url.endsWith(".glb"))
+      ) return;
+      if (msg.scale < 0.1 || msg.scale > 10) return;
+      if (Math.abs(msg.x) > 40 || Math.abs(msg.z) > 40) return;
+      const hitboxRadius = Math.max(0.1, Math.min(10, msg.hitboxRadius ?? 1.0));
+      const obj: PlacedObject = {
+        id: randomUUID(),
+        url: msg.url,
+        placedBy: id,
+        x: msg.x,
+        z: msg.z,
+        rotY: msg.rotY,
+        scale: msg.scale,
+        hitboxShape: msg.hitboxShape === "box" ? "box" : "cylinder",
+        hitboxRadius,
+        hitboxOffsetX: msg.hitboxOffsetX ?? 0,
+        hitboxOffsetZ: msg.hitboxOffsetZ ?? 0,
+      };
+      this.placedObjects.set(obj.id, obj);
+      this.saveObjects();
+      this.broadcast({ type: "objectPlaced", object: obj });
+    }
+
+    if (msg.type === "moveObject") {
+      const obj = this.placedObjects.get(msg.id);
+      if (!obj) return;
+      if (msg.scale < 0.1 || msg.scale > 10) return;
+      if (Math.abs(msg.x) > 40 || Math.abs(msg.z) > 40) return;
+      obj.x = msg.x;
+      obj.z = msg.z;
+      obj.rotY = msg.rotY;
+      obj.scale = msg.scale;
+      obj.hitboxShape = msg.hitboxShape === "box" ? "box" : "cylinder";
+      obj.hitboxRadius = Math.max(0.1, Math.min(10, msg.hitboxRadius ?? obj.hitboxRadius));
+      obj.hitboxOffsetX = msg.hitboxOffsetX ?? 0;
+      obj.hitboxOffsetZ = msg.hitboxOffsetZ ?? 0;
+      this.saveObjects();
+      this.broadcast({ type: "objectMoved", object: obj });
+    }
+
+    if (msg.type === "deleteObject") {
+      if (!this.placedObjects.has(msg.id)) return;
+      this.placedObjects.delete(msg.id);
+      this.saveObjects();
+      this.broadcast({ type: "objectDeleted", id: msg.id });
+    }
+  }
+
+  private saveObjects() {
+    try {
+      writeFileSync(OBJECTS_FILE, JSON.stringify(Array.from(this.placedObjects.values()), null, 2));
+    } catch (e) {
+      console.error("[objects] Failed to save:", e);
+    }
   }
 
   private update() {
@@ -216,6 +286,35 @@ export class Room {
             const push = (minDist - dist) / dist;
             state.x += dx * push;
             state.z += dz * push;
+          }
+        }
+
+        // Push player out of placed object colliders
+        for (const obj of this.placedObjects.values()) {
+          const hx = obj.x + (obj.hitboxOffsetX ?? 0);
+          const hz = obj.z + (obj.hitboxOffsetZ ?? 0);
+          if (obj.hitboxShape === "box") {
+            const hw = obj.hitboxRadius;
+            const closestX = Math.max(hx - hw, Math.min(hx + hw, state.x));
+            const closestZ = Math.max(hz - hw, Math.min(hz + hw, state.z));
+            const dx = state.x - closestX;
+            const dz = state.z - closestZ;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < PLAYER_RADIUS && dist > 0) {
+              const push = (PLAYER_RADIUS - dist) / dist;
+              state.x += dx * push;
+              state.z += dz * push;
+            }
+          } else {
+            const dx = state.x - hx;
+            const dz = state.z - hz;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            const minDist = obj.hitboxRadius + PLAYER_RADIUS;
+            if (dist < minDist && dist > 0) {
+              const push = (minDist - dist) / dist;
+              state.x += dx * push;
+              state.z += dz * push;
+            }
           }
         }
       }

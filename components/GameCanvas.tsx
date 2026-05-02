@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon, ScoreEntry } from "../server/types";
+import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
+import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon, ScoreEntry, PlacedObject } from "../server/types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "ws://localhost:3001";
 const LERP_FACTOR = 0.2;
@@ -110,8 +111,24 @@ export default function GameCanvas({ playerName }: Props) {
   const [scores, setScores] = useState<ScoreEntry[]>([]);
   const [showScoreboard, setShowScoreboard] = useState(false);
   const [rampageAnnouncement, setRampageAnnouncement] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [inPlacementMode, setInPlacementMode] = useState(false);
+  const [selectedObjId, setSelectedObjId] = useState<string | null>(null);
+  const [selectedObjScale, setSelectedObjScale] = useState(1);
+  const [selectedObjRotY, setSelectedObjRotY] = useState(0);
+  const [selectedObjHitboxShape, setSelectedObjHitboxShape] = useState<"cylinder" | "box">("cylinder");
+  const [selectedObjHitboxRadius, setSelectedObjHitboxRadius] = useState(1);
+  const [selectedObjHitboxOffsetX, setSelectedObjHitboxOffsetX] = useState(0);
+  const [selectedObjHitboxOffsetZ, setSelectedObjHitboxOffsetZ] = useState(0);
   const chatIdRef = useRef(0);
   const chatInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const enterPlacementModeRef = useRef<((url: string, preset?: Partial<PlacedObject>) => void) | null>(null);
+  const exitPlacementModeRef = useRef<(() => void) | null>(null);
+  const applyTransformRef = useRef<((id: string, scale: number, rotY: number, hitboxShape: "cylinder" | "box", hitboxRadius: number, hitboxOffsetX: number, hitboxOffsetZ: number) => void) | null>(null);
+  const applyHitboxOffsetRef = useRef<((id: string, offsetX: number, offsetZ: number) => void) | null>(null);
+  const deleteObjRef = useRef<((id: string) => void) | null>(null);
+  const placementUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
@@ -173,6 +190,51 @@ export default function GameCanvas({ playerName }: Props) {
     scene.add(sun);
 
     scene.add(buildGround());
+
+    // ---- Transform gizmo ----
+    const transformControls = new TransformControls(camera, renderer.domElement);
+    transformControls.setMode("translate");
+    transformControls.setSpace("world");
+    transformControls.showY = false; // ground-plane only
+    scene.add(transformControls.getHelper());
+
+    // Track when the gizmo captures a pointer-down so onMouseDown can ignore it
+    let gizmoPointerDown = false;
+    transformControls.addEventListener("mouseDown", () => { gizmoPointerDown = true; });
+    transformControls.addEventListener("mouseUp", () => {
+      gizmoPointerDown = false;
+      // Send final position to server after drag ends
+      if (!currentSelectedId) return;
+      const entry = placedObjects.get(currentSelectedId);
+      if (!entry) return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        type: "moveObject",
+        id: currentSelectedId,
+        x: entry.data.x,
+        z: entry.data.z,
+        rotY: entry.data.rotY,
+        scale: entry.data.scale,
+        hitboxShape: entry.data.hitboxShape,
+        hitboxRadius: entry.data.hitboxRadius,
+        hitboxOffsetX: entry.data.hitboxOffsetX,
+        hitboxOffsetZ: entry.data.hitboxOffsetZ,
+      } satisfies ClientMessage));
+    });
+
+    // Live-update hitbox and selection box while dragging
+    transformControls.addEventListener("objectChange", () => {
+      if (!currentSelectedId) return;
+      const entry = placedObjects.get(currentSelectedId);
+      if (!entry) return;
+      entry.data.x = entry.root.position.x;
+      entry.data.z = entry.root.position.z;
+      entry.hitboxMesh.position.set(entry.data.x + entry.data.hitboxOffsetX, 1, entry.data.z + entry.data.hitboxOffsetZ);
+      const col = placedColliders.get(currentSelectedId);
+      if (col) { col.x = entry.data.x; col.z = entry.data.z; }
+      refreshSelectionBox(entry.root);
+    });
 
     // ---- Occlusion ghost system ----
     // occluders: add wall/level meshes here when level geometry is introduced.
@@ -274,6 +336,21 @@ export default function GameCanvas({ playerName }: Props) {
         return;
       }
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+
+      // Ctrl+C / Ctrl+V — copy/paste placed objects
+      if ((e.ctrlKey || e.metaKey) && e.key === "c") {
+        if (currentSelectedId) {
+          const entry = placedObjects.get(currentSelectedId);
+          if (entry) clipboardObj = { ...entry.data };
+        }
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "v") {
+        if (!clipboardObj) return;
+        enterPlacementMode(clipboardObj.url, clipboardObj);
+        return;
+      }
+
       const k = e.key.toLowerCase();
       if (k in keys) (keys as Record<string, boolean>)[k] = true;
       if (k === "1") {
@@ -321,22 +398,42 @@ export default function GameCanvas({ playerName }: Props) {
     // Shoot on left-click
     function onMouseDown(e: MouseEvent) {
       if (e.button !== 0) return;
-      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+      if (e.target !== renderer.domElement) return;
+      if (gizmoPointerDown) return;
+
+      // Placement mode — click confirms placement
+      if (placementUrlRef.current) {
+        confirmPlacement();
+        return;
+      }
+
+      raycaster.setFromCamera(mouse, camera);
+
+      // Try to select a placed object
+      const placedMeshList = Array.from(placedMeshToId.keys());
+      if (placedMeshList.length > 0) {
+        const hits = raycaster.intersectObjects(placedMeshList, false);
+        if (hits.length > 0) {
+          const hitId = placedMeshToId.get(hits[0].object);
+          if (hitId) { selectObject(hitId); return; }
+        }
+      }
+
+      // Deselect on ground click
+      if (currentSelectedId) { selectObject(null); }
+
+      // Shoot
       if (weaponRef.current !== "pistol") return;
       if (isReloadingRef.current) return;
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
-      raycaster.setFromCamera(mouse, camera);
       const hit = new THREE.Vector3();
       if (!raycaster.ray.intersectPlane(groundPlane, hit)) return;
       if (!characterRoot) return;
-
       const dx = hit.x - characterRoot.position.x;
       const dz = hit.z - characterRoot.position.z;
       const len = Math.sqrt(dx * dx + dz * dz);
       if (len < 0.001) return;
-
       ws.send(JSON.stringify({ type: "shoot", dirX: dx / len, dirZ: dz / len } satisfies ClientMessage));
     }
     window.addEventListener("mousedown", onMouseDown);
@@ -363,6 +460,23 @@ export default function GameCanvas({ playerName }: Props) {
     let serverPos = new THREE.Vector3();
     let myId: string | null = null;
     const pendingRemoteStates: PlayerState[] = [];
+
+    // ---- Placed objects ----
+    interface PlacedEntry { data: PlacedObject; root: THREE.Object3D; hitboxMesh: THREE.Mesh }
+    const placedObjects = new Map<string, PlacedEntry>();
+    const gltfCache = new Map<string, THREE.Group>();
+    const placedMeshToId = new Map<THREE.Object3D, string>();
+    let placementGhost: THREE.Object3D | null = null;
+    let placementPreset: Partial<PlacedObject> | null = null;
+    let currentSelectedId: string | null = null;
+    let selectionBox: THREE.Box3Helper | null = null;
+
+    // Dynamic client-side colliders for placed objects (mirroring server)
+    interface DynCollider { x: number; z: number; shape: "cylinder" | "box"; radius: number; offsetX: number; offsetZ: number }
+    const placedColliders = new Map<string, DynCollider>();
+
+    // Clipboard for Ctrl+C / Ctrl+V
+    let clipboardObj: PlacedObject | null = null;
 
     let loadedCount = 0;
     function onBothLoaded() {
@@ -498,6 +612,201 @@ export default function GameCanvas({ playerName }: Props) {
       0, Math.PI / 2, Math.PI, Math.PI * 1.5,
       0, Math.PI, Math.PI / 2, Math.PI * 1.5,
     ]);
+
+    // ---- Placed object helpers ----
+    function loadGltfCached(url: string): Promise<THREE.Group> {
+      return new Promise((resolve) => {
+        if (gltfCache.has(url)) { resolve(gltfCache.get(url)!.clone(true)); return; }
+        loader.load(url, (gltf) => {
+          gltfCache.set(url, gltf.scene.clone(true));
+          resolve(gltf.scene.clone(true));
+        });
+      });
+    }
+
+    function applyPlacedTransform(data: PlacedObject, root: THREE.Object3D) {
+      root.position.set(data.x, 0, data.z);
+      root.rotation.y = data.rotY;
+      root.scale.setScalar(data.scale);
+    }
+
+    function refreshSelectionBox(root: THREE.Object3D) {
+      if (selectionBox) { scene.remove(selectionBox); selectionBox = null; }
+      const box = new THREE.Box3().setFromObject(root);
+      selectionBox = new THREE.Box3Helper(box, 0x44ff88);
+      scene.add(selectionBox);
+    }
+
+    function selectObject(id: string | null) {
+      // Hide hitbox wireframe on previously selected
+      if (currentSelectedId) {
+        const prev = placedObjects.get(currentSelectedId);
+        if (prev) prev.hitboxMesh.visible = false;
+      }
+      if (selectionBox) { scene.remove(selectionBox); selectionBox = null; }
+      currentSelectedId = id;
+      setSelectedObjId(id);
+      if (id) {
+        const entry = placedObjects.get(id);
+        if (entry) {
+          refreshSelectionBox(entry.root);
+          entry.hitboxMesh.visible = true;
+          setSelectedObjScale(entry.data.scale);
+          setSelectedObjRotY(entry.data.rotY);
+          setSelectedObjHitboxShape(entry.data.hitboxShape);
+          setSelectedObjHitboxRadius(entry.data.hitboxRadius);
+          setSelectedObjHitboxOffsetX(entry.data.hitboxOffsetX);
+          setSelectedObjHitboxOffsetZ(entry.data.hitboxOffsetZ);
+          transformControls.attach(entry.root);
+        }
+      } else {
+        transformControls.detach();
+      }
+    }
+
+    function makeHitboxMesh(data: PlacedObject): THREE.Mesh {
+      const r = data.hitboxRadius;
+      const geo = data.hitboxShape === "box"
+        ? new THREE.BoxGeometry(r * 2, 2, r * 2)
+        : new THREE.CylinderGeometry(r, r, 2, 24);
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true, transparent: true, opacity: 0.5 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(data.x + (data.hitboxOffsetX ?? 0), 1, data.z + (data.hitboxOffsetZ ?? 0));
+      mesh.visible = false;
+      return mesh;
+    }
+
+    function updateHitboxMesh(entry: PlacedEntry) {
+      scene.remove(entry.hitboxMesh);
+      entry.hitboxMesh.geometry.dispose();
+      entry.hitboxMesh = makeHitboxMesh(entry.data);
+      scene.add(entry.hitboxMesh);
+      entry.hitboxMesh.visible = currentSelectedId === entry.data.id;
+    }
+
+    async function addPlacedObject(rawData: PlacedObject) {
+      if (placedObjects.has(rawData.id)) return;
+      // Migrate objects saved before hitbox fields were added
+      const data: PlacedObject = {
+        ...rawData,
+        hitboxShape: rawData.hitboxShape ?? "cylinder",
+        hitboxRadius: rawData.hitboxRadius ?? 1.0,
+        hitboxOffsetX: rawData.hitboxOffsetX ?? 0,
+        hitboxOffsetZ: rawData.hitboxOffsetZ ?? 0,
+      };
+      const root = await loadGltfCached(data.url);
+      applyPlacedTransform(data, root);
+      scene.add(root);
+      const hitboxMesh = makeHitboxMesh(data);
+      scene.add(hitboxMesh);
+      placedObjects.set(data.id, { data, root, hitboxMesh });
+      root.traverse((child) => placedMeshToId.set(child, data.id));
+      placedColliders.set(data.id, { x: data.x, z: data.z, shape: data.hitboxShape, radius: data.hitboxRadius, offsetX: data.hitboxOffsetX, offsetZ: data.hitboxOffsetZ });
+    }
+
+    function removePlacedObject(id: string) {
+      const entry = placedObjects.get(id);
+      if (!entry) return;
+      entry.root.traverse((child) => placedMeshToId.delete(child));
+      scene.remove(entry.root);
+      scene.remove(entry.hitboxMesh);
+      entry.hitboxMesh.geometry.dispose();
+      placedObjects.delete(id);
+      placedColliders.delete(id);
+      if (currentSelectedId === id) selectObject(null);
+    }
+
+    function enterPlacementMode(url: string, preset?: Partial<PlacedObject>) {
+      if (placementGhost) { scene.remove(placementGhost); placementGhost = null; }
+      placementUrlRef.current = url;
+      placementPreset = preset ?? null;
+      setInPlacementMode(true);
+      loadGltfCached(url).then((root) => {
+        root.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            const mat = Array.isArray(child.material)
+              ? child.material.map((m) => { const c = m.clone(); c.transparent = true; c.opacity = 0.45; return c; })
+              : (() => { const c = (child.material as THREE.Material).clone(); (c as THREE.MeshStandardMaterial).transparent = true; (c as THREE.MeshStandardMaterial).opacity = 0.45; return c; })();
+            child.material = mat;
+          }
+        });
+        if (preset?.scale) root.scale.setScalar(preset.scale);
+        if (preset?.rotY !== undefined) root.rotation.y = preset.rotY;
+        placementGhost = root;
+        scene.add(root);
+      });
+    }
+
+    function exitPlacementMode() {
+      if (placementGhost) { scene.remove(placementGhost); placementGhost = null; }
+      placementUrlRef.current = null;
+      placementPreset = null;
+      setInPlacementMode(false);
+    }
+
+    function confirmPlacement() {
+      if (!placementGhost || !placementUrlRef.current) return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        type: "placeObject",
+        url: placementUrlRef.current,
+        x: placementGhost.position.x,
+        z: placementGhost.position.z,
+        rotY:            placementPreset?.rotY            ?? 0,
+        scale:           placementPreset?.scale           ?? 1,
+        hitboxShape:     placementPreset?.hitboxShape     ?? "cylinder",
+        hitboxRadius:    placementPreset?.hitboxRadius    ?? 1.0,
+        hitboxOffsetX:   placementPreset?.hitboxOffsetX   ?? 0,
+        hitboxOffsetZ:   placementPreset?.hitboxOffsetZ   ?? 0,
+      } satisfies ClientMessage));
+      exitPlacementMode();
+    }
+
+    enterPlacementModeRef.current = enterPlacementMode;
+    exitPlacementModeRef.current = exitPlacementMode;
+
+    applyTransformRef.current = (id, scale, rotY, hitboxShape, hitboxRadius, hitboxOffsetX, hitboxOffsetZ) => {
+      const entry = placedObjects.get(id);
+      if (!entry) return;
+      entry.data.scale = scale;
+      entry.data.rotY = rotY;
+      entry.data.hitboxShape = hitboxShape;
+      entry.data.hitboxRadius = hitboxRadius;
+      entry.data.hitboxOffsetX = hitboxOffsetX;
+      entry.data.hitboxOffsetZ = hitboxOffsetZ;
+      entry.root.scale.setScalar(scale);
+      entry.root.rotation.y = rotY;
+      placedColliders.set(id, { x: entry.data.x, z: entry.data.z, shape: hitboxShape, radius: hitboxRadius, offsetX: hitboxOffsetX, offsetZ: hitboxOffsetZ });
+      updateHitboxMesh(entry);
+      if (currentSelectedId === id) { refreshSelectionBox(entry.root); if (entry.hitboxMesh) entry.hitboxMesh.visible = true; }
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "moveObject", id, x: entry.data.x, z: entry.data.z, rotY, scale, hitboxShape, hitboxRadius, hitboxOffsetX, hitboxOffsetZ } satisfies ClientMessage));
+      }
+    };
+
+    applyHitboxOffsetRef.current = (id, offsetX, offsetZ) => {
+      const entry = placedObjects.get(id);
+      if (!entry) return;
+      entry.data.hitboxOffsetX = offsetX;
+      entry.data.hitboxOffsetZ = offsetZ;
+      entry.hitboxMesh.position.set(entry.data.x + offsetX, 1, entry.data.z + offsetZ);
+      const col = placedColliders.get(id);
+      if (col) { col.offsetX = offsetX; col.offsetZ = offsetZ; }
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "moveObject", id, x: entry.data.x, z: entry.data.z, rotY: entry.data.rotY, scale: entry.data.scale, hitboxShape: entry.data.hitboxShape, hitboxRadius: entry.data.hitboxRadius, hitboxOffsetX: offsetX, hitboxOffsetZ: offsetZ } satisfies ClientMessage));
+      }
+    };
+
+    deleteObjRef.current = (id) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "deleteObject", id } satisfies ClientMessage));
+      }
+      removePlacedObject(id);
+    };
 
     // ---- Remote players ----
     const remotePlayers = new Map<string, RemotePlayer>();
@@ -769,6 +1078,34 @@ export default function GameCanvas({ playerName }: Props) {
         }
       }
 
+      if (msg.type === "objectList") {
+        for (const obj of msg.objects) addPlacedObject(obj);
+      }
+
+      if (msg.type === "objectPlaced") {
+        addPlacedObject(msg.object);
+      }
+
+      if (msg.type === "objectMoved") {
+        const entry = placedObjects.get(msg.object.id);
+        if (entry) {
+          entry.data = msg.object;
+          applyPlacedTransform(msg.object, entry.root);
+          placedColliders.set(msg.object.id, { x: msg.object.x, z: msg.object.z, shape: msg.object.hitboxShape, radius: msg.object.hitboxRadius, offsetX: msg.object.hitboxOffsetX ?? 0, offsetZ: msg.object.hitboxOffsetZ ?? 0 });
+          updateHitboxMesh(entry);
+          if (currentSelectedId === msg.object.id) {
+            refreshSelectionBox(entry.root);
+            entry.hitboxMesh.visible = true;
+          }
+        } else {
+          addPlacedObject(msg.object);
+        }
+      }
+
+      if (msg.type === "objectDeleted") {
+        removePlacedObject(msg.id);
+      }
+
       if (msg.type === "rampage") {
         const isMe = msg.playerId === myId;
         const text = isMe
@@ -872,6 +1209,33 @@ export default function GameCanvas({ playerName }: Props) {
             const push = (minDist - dist) / dist;
             characterRoot.position.x += dx * push;
             characterRoot.position.z += dz * push;
+          }
+        }
+        for (const col of placedColliders.values()) {
+          const hx = col.x + col.offsetX;
+          const hz = col.z + col.offsetZ;
+          if (col.shape === "box") {
+            const hw = col.radius;
+            const closestX = Math.max(hx - hw, Math.min(hx + hw, characterRoot.position.x));
+            const closestZ = Math.max(hz - hw, Math.min(hz + hw, characterRoot.position.z));
+            const dx = characterRoot.position.x - closestX;
+            const dz = characterRoot.position.z - closestZ;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < CLIENT_PLAYER_RADIUS && dist > 0) {
+              const push = (CLIENT_PLAYER_RADIUS - dist) / dist;
+              characterRoot.position.x += dx * push;
+              characterRoot.position.z += dz * push;
+            }
+          } else {
+            const dx = characterRoot.position.x - hx;
+            const dz = characterRoot.position.z - hz;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            const minDist = col.radius + CLIENT_PLAYER_RADIUS;
+            if (dist < minDist && dist > 0) {
+              const push = (minDist - dist) / dist;
+              characterRoot.position.x += dx * push;
+              characterRoot.position.z += dz * push;
+            }
           }
         }
       }
@@ -994,6 +1358,15 @@ export default function GameCanvas({ playerName }: Props) {
         }
       }
 
+      // Placement ghost follows cursor
+      if (placementGhost) {
+        raycaster.setFromCamera(mouse, camera);
+        const ghostHit = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(groundPlane, ghostHit)) {
+          placementGhost.position.set(ghostHit.x, 0, ghostHit.z);
+        }
+      }
+
       // Follow camera
       if (characterRoot) {
         const offset = new THREE.Vector3(d, d * 0.816, d);
@@ -1044,6 +1417,12 @@ export default function GameCanvas({ playerName }: Props) {
       }
       for (const line of projectileLines.values()) { line.geometry.dispose(); scene.remove(line); }
       for (const m of debugMeshes) { m.geometry.dispose(); scene.remove(m); }
+      for (const entry of placedObjects.values()) scene.remove(entry.root);
+      if (placementGhost) scene.remove(placementGhost);
+      if (selectionBox) scene.remove(selectionBox);
+      transformControls.detach();
+      scene.remove(transformControls.getHelper());
+      transformControls.dispose();
       for (const ps of particleSystems) {
         for (const p of ps.particles) {
           p.mesh.geometry.dispose();
@@ -1292,6 +1671,222 @@ export default function GameCanvas({ playerName }: Props) {
             </p>
             <p className="relative text-sm mt-2" style={{ color: "rgba(200,255,220,0.6)" }}>Respawning…</p>
           </div>
+        </div>
+      )}
+
+      {/* Import model button + placement mode */}
+      <div className="absolute bottom-24 right-4 flex flex-col items-end gap-2 pointer-events-auto">
+        {inPlacementMode ? (
+          <div className="flex flex-col items-end gap-2">
+            <div
+              className="px-4 py-2 rounded-xl text-sm font-semibold animate-pulse"
+              style={{
+                background: "linear-gradient(160deg, rgba(80,220,120,0.22) 0%, rgba(0,140,60,0.18) 100%)",
+                border: "1px solid rgba(80,220,120,0.5)",
+                backdropFilter: "blur(10px)",
+                color: "#a0ffb8",
+                textShadow: "0 0 8px rgba(0,220,100,0.6)",
+                boxShadow: "0 0 16px rgba(0,200,80,0.3)",
+              }}
+            >
+              Click to place
+            </div>
+            <button
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold"
+              style={{
+                background: "linear-gradient(160deg, rgba(255,80,80,0.2) 0%, rgba(180,0,0,0.15) 100%)",
+                border: "1px solid rgba(255,100,100,0.4)",
+                backdropFilter: "blur(10px)",
+                color: "#ff9090",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
+              }}
+              onClick={() => exitPlacementModeRef.current?.()}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden disabled:opacity-50"
+            style={{
+              background: "linear-gradient(160deg, rgba(255,255,255,0.15) 0%, rgba(60,180,100,0.1) 100%)",
+              border: "1px solid rgba(80,220,120,0.35)",
+              backdropFilter: "blur(10px)",
+              color: "rgba(200,255,220,0.9)",
+              boxShadow: "0 2px 10px rgba(0,160,60,0.25), inset 0 1px 0 rgba(255,255,255,0.25)",
+            }}
+            disabled={isUploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
+              style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 100%)" }} />
+            <span className="relative">{isUploading ? "Uploading…" : "Import Model"}</span>
+          </button>
+        )}
+      </div>
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".gltf,.glb"
+        className="hidden"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (!file) return;
+          setIsUploading(true);
+          try {
+            const form = new FormData();
+            form.append("file", file);
+            const res = await fetch("/api/upload", { method: "POST", body: form });
+            const data = await res.json();
+            if (!res.ok || !data.url) throw new Error(data.error ?? "Upload failed");
+            enterPlacementModeRef.current?.(data.url);
+          } catch (err) {
+            console.error("[upload]", err);
+          } finally {
+            setIsUploading(false);
+          }
+        }}
+      />
+
+      {/* Object selection panel */}
+      {selectedObjId && (
+        <div
+          className="absolute top-1/2 right-4 -translate-y-1/2 flex flex-col gap-3 p-4 rounded-2xl w-52 pointer-events-auto overflow-hidden"
+          style={{
+            background: "linear-gradient(160deg, rgba(255,255,255,0.16) 0%, rgba(60,180,100,0.09) 100%)",
+            border: "1px solid rgba(255,255,255,0.28)",
+            backdropFilter: "blur(18px)",
+            boxShadow: "0 8px 30px rgba(0,120,50,0.4), inset 0 1px 0 rgba(255,255,255,0.35)",
+          }}
+        >
+          <div className="absolute inset-x-0 top-0 h-1/3 rounded-t-2xl pointer-events-none"
+            style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 100%)" }} />
+
+          <p className="relative text-xs font-bold tracking-widest uppercase"
+            style={{ color: "#a0ffb8", textShadow: "0 0 8px rgba(0,220,100,0.5)" }}>
+            Object
+          </p>
+
+          <div className="relative flex flex-col gap-1">
+            <label className="text-xs font-semibold" style={{ color: "rgba(200,255,220,0.8)" }}>
+              Scale: {selectedObjScale.toFixed(2)}x
+            </label>
+            <input
+              type="range" min="0.1" max="5" step="0.05"
+              value={selectedObjScale}
+              className="w-full accent-green-400"
+              onChange={(e) => {
+                const s = parseFloat(e.target.value);
+                setSelectedObjScale(s);
+                applyTransformRef.current?.(selectedObjId, s, selectedObjRotY, selectedObjHitboxShape, selectedObjHitboxRadius, selectedObjHitboxOffsetX, selectedObjHitboxOffsetZ);
+              }}
+            />
+          </div>
+
+          <div className="relative flex flex-col gap-1">
+            <label className="text-xs font-semibold" style={{ color: "rgba(200,255,220,0.8)" }}>
+              Rotation: {Math.round(((selectedObjRotY % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) * 180 / Math.PI)}°
+            </label>
+            <input
+              type="range" min="0" max="360" step="1"
+              value={Math.round(((selectedObjRotY % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) * 180 / Math.PI)}
+              className="w-full accent-green-400"
+              onChange={(e) => {
+                const r = parseFloat(e.target.value) * Math.PI / 180;
+                setSelectedObjRotY(r);
+                applyTransformRef.current?.(selectedObjId, selectedObjScale, r, selectedObjHitboxShape, selectedObjHitboxRadius, selectedObjHitboxOffsetX, selectedObjHitboxOffsetZ);
+              }}
+            />
+          </div>
+
+          <div className="relative flex flex-col gap-1">
+            <label className="text-xs font-semibold" style={{ color: "rgba(200,255,220,0.8)" }}>
+              Hitbox shape
+            </label>
+            <div className="flex gap-2">
+              {(["cylinder", "box"] as const).map((shape) => (
+                <button
+                  key={shape}
+                  className="flex-1 py-1 rounded-lg text-xs font-bold capitalize"
+                  style={{
+                    background: selectedObjHitboxShape === shape ? "rgba(80,220,120,0.3)" : "rgba(80,220,120,0.08)",
+                    border: `1px solid ${selectedObjHitboxShape === shape ? "rgba(80,220,120,0.7)" : "rgba(80,220,120,0.25)"}`,
+                    color: selectedObjHitboxShape === shape ? "#a0ffb8" : "rgba(200,255,220,0.6)",
+                  }}
+                  onClick={() => {
+                    setSelectedObjHitboxShape(shape);
+                    applyTransformRef.current?.(selectedObjId, selectedObjScale, selectedObjRotY, shape, selectedObjHitboxRadius, selectedObjHitboxOffsetX, selectedObjHitboxOffsetZ);
+                  }}
+                >
+                  {shape}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="relative flex flex-col gap-1">
+            <label className="text-xs font-semibold" style={{ color: "rgba(200,255,220,0.8)" }}>
+              Hitbox size: {selectedObjHitboxRadius.toFixed(2)}
+            </label>
+            <input
+              type="range" min="0.1" max="8" step="0.05"
+              value={selectedObjHitboxRadius}
+              className="w-full accent-yellow-400"
+              onChange={(e) => {
+                const r = parseFloat(e.target.value);
+                setSelectedObjHitboxRadius(r);
+                applyTransformRef.current?.(selectedObjId, selectedObjScale, selectedObjRotY, selectedObjHitboxShape, r, selectedObjHitboxOffsetX, selectedObjHitboxOffsetZ);
+              }}
+            />
+          </div>
+
+          <div className="relative flex flex-col gap-1">
+            <label className="text-xs font-semibold" style={{ color: "rgba(200,255,220,0.8)" }}>
+              Hitbox offset X: {selectedObjHitboxOffsetX.toFixed(2)}
+            </label>
+            <input
+              type="range" min="-5" max="5" step="0.1"
+              value={selectedObjHitboxOffsetX}
+              className="w-full accent-yellow-400"
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setSelectedObjHitboxOffsetX(v);
+                applyHitboxOffsetRef.current?.(selectedObjId, v, selectedObjHitboxOffsetZ);
+              }}
+            />
+          </div>
+
+          <div className="relative flex flex-col gap-1">
+            <label className="text-xs font-semibold" style={{ color: "rgba(200,255,220,0.8)" }}>
+              Hitbox offset Z: {selectedObjHitboxOffsetZ.toFixed(2)}
+            </label>
+            <input
+              type="range" min="-5" max="5" step="0.1"
+              value={selectedObjHitboxOffsetZ}
+              className="w-full accent-yellow-400"
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setSelectedObjHitboxOffsetZ(v);
+                applyHitboxOffsetRef.current?.(selectedObjId, selectedObjHitboxOffsetX, v);
+              }}
+            />
+          </div>
+
+          <button
+            className="relative py-1.5 rounded-xl text-sm font-bold mt-1"
+            style={{
+              background: "linear-gradient(180deg, rgba(255,80,80,0.25) 0%, rgba(180,0,0,0.2) 100%)",
+              border: "1px solid rgba(255,100,100,0.4)",
+              color: "#ff9090",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
+            }}
+            onClick={() => deleteObjRef.current?.(selectedObjId)}
+          >
+            Delete
+          </button>
         </div>
       )}
 
