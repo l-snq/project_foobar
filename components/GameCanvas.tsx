@@ -337,6 +337,12 @@ export default function GameCanvas({ playerName }: Props) {
       }
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
 
+      // Escape — cancel placement mode
+      if (e.key === "Escape") {
+        if (placementUrlRef.current) exitPlacementMode();
+        return;
+      }
+
       // Ctrl+C / Ctrl+V — copy/paste placed objects
       if ((e.ctrlKey || e.metaKey) && e.key === "c") {
         if (currentSelectedId) {
