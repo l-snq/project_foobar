@@ -77,6 +77,7 @@ interface RemotePlayer {
   weapon: Weapon;
   health: number;
   dead: boolean;
+  ghost: THREE.Mesh;
 }
 
 export interface ChatMessage {
@@ -172,6 +173,39 @@ export default function GameCanvas({ playerName }: Props) {
     scene.add(sun);
 
     scene.add(buildGround());
+
+    // ---- Occlusion ghost system ----
+    // occluders: add wall/level meshes here when level geometry is introduced.
+    // Currently empty, so ghosts never show (ready for when maps are added).
+    const occluders: THREE.Object3D[] = [];
+    const ghostOcclusionRaycaster = new THREE.Raycaster();
+
+    function makeGhost(): THREE.Mesh {
+      const geo = new THREE.CylinderGeometry(0.28, 0.28, 1.6, 10);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x44ff88,
+        depthTest: false,
+        depthWrite: false,
+        transparent: true,
+        opacity: 0.55,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.y = 0.8;
+      mesh.visible = false;
+      mesh.name = "__ghost";
+      return mesh;
+    }
+
+    function isOccluded(worldPos: THREE.Vector3): boolean {
+      if (occluders.length === 0) return false;
+      const target = worldPos.clone();
+      target.y += 0.9;
+      const dir = target.clone().sub(camera.position).normalize();
+      const dist = camera.position.distanceTo(target);
+      ghostOcclusionRaycaster.set(camera.position, dir);
+      ghostOcclusionRaycaster.far = dist - 0.2;
+      return ghostOcclusionRaycaster.intersectObjects(occluders, true).length > 0;
+    }
 
     // ---- Reload ----
     function triggerReload() {
@@ -289,6 +323,8 @@ export default function GameCanvas({ playerName }: Props) {
     let reloadAction: THREE.AnimationAction | null = null;
     let isDancing = false;
     let localDead = false;
+    let localGhostUnarmed: THREE.Mesh | null = null;
+    let localGhostPistol: THREE.Mesh | null = null;
     let characterRoot: THREE.Object3D | null = null; // points to whichever model is active
 
     let serverPos = new THREE.Vector3();
@@ -316,6 +352,8 @@ export default function GameCanvas({ playerName }: Props) {
 
       const localLabel = makeNameLabel(playerName, true);
       model.add(localLabel);
+      localGhostUnarmed = makeGhost();
+      model.add(localGhostUnarmed);
 
       mixerUnarmed = new THREE.AnimationMixer(model);
       if (gltf.animations.length > 0) {
@@ -356,6 +394,8 @@ export default function GameCanvas({ playerName }: Props) {
       model.visible = false; // hidden until player presses 1
       scene.add(model);
       localPistol = model;
+      localGhostPistol = makeGhost();
+      model.add(localGhostPistol);
 
       mixerPistol = new THREE.AnimationMixer(model);
       if (gltf.animations.length > 0) {
@@ -382,6 +422,24 @@ export default function GameCanvas({ playerName }: Props) {
       }
 
       if (++loadedCount === 2) onBothLoaded();
+    });
+
+    // ---- Trees ----
+    const TREE_POSITIONS: [number, number][] = [
+      [-8, -8], [8, -8], [-8, 8], [8, 8],
+      [0, -14], [0, 14], [-14, 0], [14, 0],
+      [-12, 12], [12, -12],
+    ];
+
+    loader.load("/tree.gltf", (gltf) => {
+      for (const [tx, tz] of TREE_POSITIONS) {
+        const tree = gltf.scene.clone(true);
+        tree.position.set(tx, 0, tz);
+        scene.add(tree);
+        tree.traverse((child) => {
+          if (child instanceof THREE.Mesh) occluders.push(child);
+        });
+      }
     });
 
     // ---- Remote players ----
@@ -454,6 +512,9 @@ export default function GameCanvas({ playerName }: Props) {
         });
       }
 
+      const remoteGhost = makeGhost();
+      unarmed.root.add(remoteGhost);
+
       remotePlayers.set(id, {
         rootUnarmed: unarmed.root,
         rootPistol: pistol.root,
@@ -473,6 +534,7 @@ export default function GameCanvas({ playerName }: Props) {
         weapon: state.weapon,
         health: state.health,
         dead: false,
+        ghost: remoteGhost,
       });
     }
 
@@ -751,6 +813,18 @@ export default function GameCanvas({ playerName }: Props) {
         inactive.rotation.copy(active.rotation);
       }
 
+      // Local player occlusion ghost
+      if (characterRoot && !localDead) {
+        const worldPos = new THREE.Vector3();
+        characterRoot.getWorldPosition(worldPos);
+        const occluded = isOccluded(worldPos);
+        if (localGhostUnarmed) localGhostUnarmed.visible = occluded && weaponRef.current !== "pistol";
+        if (localGhostPistol) localGhostPistol.visible = occluded && weaponRef.current === "pistol";
+      } else {
+        if (localGhostUnarmed) localGhostUnarmed.visible = false;
+        if (localGhostPistol) localGhostPistol.visible = false;
+      }
+
       // Walk / dance / reload animation — drive whichever local model is active
       const isMoving = input.lengthSq() > 0;
       if (isDancing) {
@@ -769,7 +843,7 @@ export default function GameCanvas({ playerName }: Props) {
 
       // Remote players
       for (const remote of remotePlayers.values()) {
-        if (remote.dead) continue;
+        if (remote.dead) { remote.ghost.visible = false; continue; }
         // Dancing forces unarmed model
         const isPistol = !remote.dancing && remote.weapon === "pistol";
         remote.rootUnarmed.visible = !isPistol;
@@ -819,6 +893,11 @@ export default function GameCanvas({ playerName }: Props) {
           }
           rMixer.update(dt);
         }
+
+        // Remote player occlusion ghost
+        const remoteWorldPos = new THREE.Vector3();
+        (isPistol ? remote.rootPistol : remote.rootUnarmed).getWorldPosition(remoteWorldPos);
+        remote.ghost.visible = isOccluded(remoteWorldPos);
       }
 
       // Particle explosions
