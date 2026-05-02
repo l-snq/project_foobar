@@ -199,11 +199,11 @@ export default function GameCanvas({ playerName }: Props) {
         setShowScoreboard(true);
         return;
       }
-      if (e.key === "Enter") {
-        setChatOpen((prev) => {
-          if (!prev) setTimeout(() => chatInputRef.current?.focus(), 0);
-          return !prev;
-        });
+      if (e.key === "t" || e.key === "T") {
+        if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+        e.preventDefault();
+        setChatOpen(true);
+        setTimeout(() => chatInputRef.current?.focus(), 0);
         return;
       }
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
@@ -1175,14 +1175,14 @@ export default function GameCanvas({ playerName }: Props) {
               boxShadow: "inset 0 2px 4px rgba(0,0,0,0.35), 0 1px 0 rgba(255,255,255,0.1)",
               color: "rgba(220,255,235,0.95)",
             }}
-            placeholder="Press Enter to chat…"
+            placeholder="Press T to chat…"
             maxLength={200}
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={(e) => {
               e.stopPropagation();
-              if (e.key === "Enter") { submitChat(); setChatOpen(false); }
-              if (e.key === "Escape") { setChatOpen(false); setChatInput(""); }
+              if (e.key === "Enter") { e.nativeEvent.stopImmediatePropagation(); submitChat(); setChatOpen(false); chatInputRef.current?.blur(); }
+              if (e.key === "Escape") { e.nativeEvent.stopImmediatePropagation(); setChatOpen(false); setChatInput(""); chatInputRef.current?.blur(); }
             }}
           />
           {!chatOpen && (
@@ -1197,7 +1197,7 @@ export default function GameCanvas({ playerName }: Props) {
               }}
               onClick={() => { setChatOpen(true); setTimeout(() => chatInputRef.current?.focus(), 0); }}
             >
-              Chat [Enter]
+              Chat [T]
             </button>
           )}
         </div>

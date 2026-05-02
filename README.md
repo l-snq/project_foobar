@@ -1,4 +1,6 @@
-# project_foobar
+# play.2k
+
+a chill combat surf frutiger aero game 
 
 An isometric multiplayer shooter built with Next.js + Three.js, with a server-authoritative Node.js game server.
 
