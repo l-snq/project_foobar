@@ -155,9 +155,10 @@ export default function GameCanvas({ playerName }: Props) {
     if (!mount) return;
 
     // ---- Renderer ----
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
+    renderer.setClearColor(0x000000, 0);
     mount.appendChild(renderer.domElement);
 
     // ---- CSS2D label renderer ----
@@ -168,8 +169,7 @@ export default function GameCanvas({ playerName }: Props) {
 
     // ---- Scene ----
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87ceeb);
-    scene.fog = new THREE.Fog(0x87ceeb, 30, 60);
+    scene.fog = new THREE.Fog(0xd4eeff, 30, 60);
 
     // ---- Camera ----
     const aspect = mount.clientWidth / mount.clientHeight;
@@ -1457,7 +1457,13 @@ export default function GameCanvas({ playerName }: Props) {
   const healthPct = Math.max(0, health / maxHealth);
 
   return (
-    <div ref={mountRef} className="w-full h-full relative">
+    <div
+      ref={mountRef}
+      className="w-full h-full relative"
+      style={{
+        background: "linear-gradient(180deg, #0a3d8f 0%, #1a6ec4 20%, #3b9fef 50%, #80c8f8 78%, #d4eeff 100%)",
+      }}
+    >
 
       {/* Crosshair — follows cursor when pistol equipped */}
       {weapon === "pistol" && !isDead && (
