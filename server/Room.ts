@@ -26,17 +26,29 @@ const RAMPAGE_KILLS = 10;
 const RAMPAGE_MAX_HEALTH = 200;
 const RAMPAGE_DAMAGE_MULT = 2;
 
-// Must match TREE_POSITIONS in GameCanvas.tsx
-const TREE_RADIUS = 0.4;
-// Cell size 2 on a 40×40 map → 20×20 grid. A query with radius ~0.7 touches ≤4 cells.
+// Must match object positions in GameCanvas.tsx
+const TREE_RADIUS  = 0.4;
+const HOUSE_RADIUS = 1.5;
+const MAX_STATIC_RADIUS = Math.max(TREE_RADIUS, HOUSE_RADIUS);
+
+// Cell size 2 on a 40×40 map → 20×20 grid.
+// Query with radius (objectRadius + MAX_STATIC_RADIUS) touches only a handful of cells.
 const staticGrid = new SpatialGrid(2, -20, -20, 20, 20);
+
 for (const [x, z] of [
   [-8, -8], [8, -8], [-8, 8], [8, 8],
   [0, -14], [0, 14], [-14, 0], [14, 0],
   [-12, 12], [12, -12],
-] as [number, number][]) {
-  staticGrid.insert({ x, z, radius: TREE_RADIUS });
-}
+] as [number, number][]) staticGrid.insert({ x, z, radius: TREE_RADIUS });
+
+for (const [x, z] of [
+  [-16, -16], [0, -16], [16, -16],
+  [-16,   0],            [16,   0],
+  [-16,  16], [0,  16], [16,  16],
+  [-10, -10], [10, -10], [-10, 10], [10, 10],
+  [ -5,  -5], [ 5,  -5], [ -5,  5], [ 5,  5],
+  [-10,   0], [10,   0], [0, -10], [0,  10],
+] as [number, number][]) staticGrid.insert({ x, z, radius: HOUSE_RADIUS });
 
 interface Client {
   id: ClientId;
@@ -195,7 +207,7 @@ export class Room {
         state.z = Math.max(-BOUNDS, Math.min(BOUNDS, state.z + client.inputZ * PLAYER_SPEED * dt));
 
         // Push player out of static colliders
-        for (const col of staticGrid.query(state.x, state.z, PLAYER_RADIUS + TREE_RADIUS)) {
+        for (const col of staticGrid.query(state.x, state.z, PLAYER_RADIUS + MAX_STATIC_RADIUS)) {
           const dx = state.x - col.x;
           const dz = state.z - col.z;
           const dist = Math.sqrt(dx * dx + dz * dz);
@@ -227,7 +239,7 @@ export class Room {
       }
 
       // Hit a static collider
-      const hitStatic = staticGrid.query(proj.x, proj.z, PROJECTILE_RADIUS + TREE_RADIUS).some((col) => {
+      const hitStatic = staticGrid.query(proj.x, proj.z, PROJECTILE_RADIUS + MAX_STATIC_RADIUS).some((col) => {
         const dx = proj.x - col.x;
         const dz = proj.z - col.z;
         return dx * dx + dz * dz < (col.radius + PROJECTILE_RADIUS) ** 2;

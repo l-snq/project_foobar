@@ -394,6 +394,7 @@ export default function GameCanvas({ playerName }: Props) {
       model.visible = false; // hidden until player presses 1
       scene.add(model);
       localPistol = model;
+      model.add(makeNameLabel(playerName, true));
       localGhostPistol = makeGhost();
       model.add(localGhostPistol);
 
@@ -424,23 +425,46 @@ export default function GameCanvas({ playerName }: Props) {
       if (++loadedCount === 2) onBothLoaded();
     });
 
-    // ---- Trees ----
-    const TREE_POSITIONS: [number, number][] = [
+    // ---- Static objects ----
+    function spawnGltf(url: string, positions: [number, number][], rotations?: number[]) {
+      loader.load(url, (gltf) => {
+        positions.forEach(([ox, oz], i) => {
+          const obj = gltf.scene.clone(true);
+          obj.position.set(ox, 0, oz);
+          if (rotations) obj.rotation.y = rotations[i] ?? 0;
+          scene.add(obj);
+          obj.traverse((child) => {
+            if (child instanceof THREE.Mesh) occluders.push(child);
+          });
+        });
+      });
+    }
+
+    spawnGltf("/tree.gltf", [
       [-8, -8], [8, -8], [-8, 8], [8, 8],
       [0, -14], [0, 14], [-14, 0], [14, 0],
       [-12, 12], [12, -12],
-    ];
+    ]);
 
-    loader.load("/tree.gltf", (gltf) => {
-      for (const [tx, tz] of TREE_POSITIONS) {
-        const tree = gltf.scene.clone(true);
-        tree.position.set(tx, 0, tz);
-        scene.add(tree);
-        tree.traverse((child) => {
-          if (child instanceof THREE.Mesh) occluders.push(child);
-        });
-      }
-    });
+    spawnGltf("/house.gltf", [
+      // Outer corners
+      [-16, -16], [0, -16], [16, -16],
+      [-16,   0],            [16,   0],
+      [-16,  16], [0,  16], [16,  16],
+      // Mid ring
+      [-10, -10], [10, -10], [-10, 10], [10, 10],
+      // Inner cluster
+      [ -5,  -5], [ 5,  -5], [ -5,  5], [ 5,  5],
+      // Corridor blockers
+      [-10,   0], [10,   0], [0, -10], [0,  10],
+    ], [
+      0, 0, Math.PI / 2,
+      Math.PI / 2, Math.PI / 2,
+      Math.PI, Math.PI, Math.PI * 1.5,
+      Math.PI / 4, Math.PI * 1.25, Math.PI * 0.75, Math.PI * 1.75,
+      0, Math.PI / 2, Math.PI, Math.PI * 1.5,
+      0, Math.PI, Math.PI / 2, Math.PI * 1.5,
+    ]);
 
     // ---- Remote players ----
     const remotePlayers = new Map<string, RemotePlayer>();
