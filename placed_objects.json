@@ -22,5 +22,18 @@
     "hitboxRadius": 0.45,
     "hitboxOffsetX": 0,
     "hitboxOffsetZ": 0
+  },
+  {
+    "id": "7af78faf-b3b7-4dcc-bf58-707ffb2b6a6c",
+    "url": "/uploads/7af8e8f5-a1fd-4e57-91b7-feefa1502883.gltf",
+    "placedBy": "c2a9e624-ceb9-4d6a-b116-437d92e91fd7",
+    "x": -0.7803177832082131,
+    "z": -3.8783714077178892,
+    "rotY": 0,
+    "scale": 1,
+    "hitboxShape": "box",
+    "hitboxRadius": 0.15,
+    "hitboxOffsetX": 0,
+    "hitboxOffsetZ": 0
   }
 ]
