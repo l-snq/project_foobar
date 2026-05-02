@@ -22,18 +22,5 @@
     "hitboxRadius": 0.45,
     "hitboxOffsetX": 0,
     "hitboxOffsetZ": 0
-  },
-  {
-    "id": "8d292d9e-54aa-4376-8311-844286c7376f",
-    "url": "/uploads/09dfdc07-862c-453c-97fe-f374d13f4e32.gltf",
-    "placedBy": "0e58b6c8-e357-4390-bcb4-3ba03afb48f5",
-    "x": 1.4584738132458117,
-    "z": 2.9421076255928504,
-    "rotY": 0,
-    "scale": 1,
-    "hitboxShape": "cylinder",
-    "hitboxRadius": 0.45,
-    "hitboxOffsetX": 0,
-    "hitboxOffsetZ": 0
   }
 ]
