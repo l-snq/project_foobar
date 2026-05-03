@@ -44,17 +44,21 @@ export default function Home() {
   const usernameDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    let resolved = false;
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "INITIAL_SESSION") {
         if (session) {
           fetchUsername(session.user.id).then((name) => {
             if (name) { setUsername(name); setView("game"); }
             else setView("auth");
+            resolved = true;
           });
         } else {
           setView("auth");
+          resolved = true;
         }
-      } else if (event === "SIGNED_IN" && session) {
+      } else if (event === "SIGNED_IN" && session && resolved) {
+        // Only run on explicit sign-in, not the initial session replay
         fetchUsername(session.user.id).then((name) => {
           if (name) { setUsername(name); setView("game"); }
         });
@@ -136,7 +140,7 @@ export default function Home() {
       <main className="w-screen h-screen overflow-hidden bg-black relative">
         <GameCanvas playerName={username} />
         <button
-          className="absolute top-4 right-4 px-3 py-1.5 rounded-xl text-xs font-semibold z-50"
+          className="absolute top-4 right-4 px-3 py-1.5 rounded-xl text-xs font-semibold z-50 btn-glass"
           style={{
             background: "rgba(0,0,0,0.3)",
             border: "1px solid rgba(255,255,255,0.15)",
@@ -145,7 +149,7 @@ export default function Home() {
           }}
           onClick={() => supabase.auth.signOut()}
         >
-          Sign out
+          Sign Out
         </button>
       </main>
     );
@@ -193,7 +197,7 @@ export default function Home() {
           {(["signin", "signup"] as Tab[]).map((t) => (
             <button
               key={t}
-              className="flex-1 py-1.5 text-xs font-bold tracking-wide transition-all"
+              className="flex-1 py-1.5 text-xs font-bold tracking-wide btn-glass"
               style={{
                 background: tab === t ? "rgba(80,220,120,0.25)" : "transparent",
                 color: tab === t ? "#a0ffb8" : "rgba(150,220,170,0.5)",
@@ -239,7 +243,7 @@ export default function Home() {
             <button
               type="submit"
               disabled={siLoading}
-              className="relative px-4 py-2.5 rounded-xl font-bold text-white disabled:opacity-50 overflow-hidden"
+              className="relative px-4 py-2.5 rounded-xl font-bold text-white disabled:opacity-50 overflow-hidden btn-aero"
               style={btnStyle}
             >
               <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
@@ -259,7 +263,7 @@ export default function Home() {
                 We sent a confirmation link to <strong>{suEmail}</strong>. Click it to activate your account, then sign in.
               </p>
               <button
-                className="text-xs underline mt-1"
+                className="text-xs underline mt-1 btn-glass rounded-lg px-2 py-1"
                 style={{ color: "rgba(150,220,170,0.6)" }}
                 onClick={() => { setAwaitingConfirmation(false); setTab("signin"); }}
               >
@@ -324,7 +328,7 @@ export default function Home() {
               <button
                 type="submit"
                 disabled={suLoading || usernameStatus !== "available"}
-                className="relative px-4 py-2.5 rounded-xl font-bold text-white disabled:opacity-50 overflow-hidden"
+                className="relative px-4 py-2.5 rounded-xl font-bold text-white disabled:opacity-50 overflow-hidden btn-aero"
                 style={btnStyle}
               >
                 <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
