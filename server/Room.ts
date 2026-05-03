@@ -4,14 +4,13 @@ import { join } from "path";
 import type { WebSocket } from "ws";
 import type {
   ClientId, PlayerState, ProjectileState, ScoreEntry,
-  ServerMessage, ClientMessage, Weapon, PlacedObject,
+  ServerMessage, ClientMessage, Weapon, PlacedObject, MapConfig,
 } from "./types";
 import { SpatialGrid } from "./SpatialGrid";
 
 const TICK_RATE = 20;
 const TICK_MS = 1000 / TICK_RATE;
 const PLAYER_SPEED = 4;
-const BOUNDS = 19.5;
 const MAX_CHAT_LEN = 200;
 const MAX_HEALTH = 100;
 
@@ -28,31 +27,21 @@ const RAMPAGE_KILLS = 10;
 const RAMPAGE_MAX_HEALTH = 200;
 const RAMPAGE_DAMAGE_MULT = 2;
 
-// Must match object positions in GameCanvas.tsx
-const TREE_RADIUS  = 0.4;
-const HOUSE_RADIUS = 0.75;
-const MAX_STATIC_RADIUS = Math.max(TREE_RADIUS, HOUSE_RADIUS);
-
+const MAP_DIR = join(process.cwd(), "maps");
+const MAP_ID = "forest";
 const OBJECTS_FILE = join(process.cwd(), "placed_objects.json");
 
-// Cell size 2 on a 40×40 map → 20×20 grid.
-// Query with radius (objectRadius + MAX_STATIC_RADIUS) touches only a handful of cells.
-const staticGrid = new SpatialGrid(2, -20, -20, 20, 20);
+const mapConfig: MapConfig = JSON.parse(readFileSync(join(MAP_DIR, `${MAP_ID}.json`), "utf8"));
+const BOUNDS = mapConfig.bounds;
+const MAX_STATIC_RADIUS = Math.max(0.1, ...mapConfig.staticObjects.map((o) => o.hitboxRadius));
 
-for (const [x, z] of [
-  [-8, -8], [8, -8], [-8, 8], [8, 8],
-  [0, -14], [0, 14], [-14, 0], [14, 0],
-  [-12, 12], [12, -12],
-] as [number, number][]) staticGrid.insert({ x, z, radius: TREE_RADIUS });
-
-for (const [x, z] of [
-  [-16, -16], [0, -16], [16, -16],
-  [-16,   0],            [16,   0],
-  [-16,  16], [0,  16], [16,  16],
-  [-10, -10], [10, -10], [-10, 10], [10, 10],
-  [ -5,  -5], [ 5,  -5], [ -5,  5], [ 5,  5],
-  [-10,   0], [10,   0], [0, -10], [0,  10],
-] as [number, number][]) staticGrid.insert({ x, z, radius: HOUSE_RADIUS });
+const half = mapConfig.groundSize / 2;
+const staticGrid = new SpatialGrid(2, -half, -half, half, half);
+for (const obj of mapConfig.staticObjects) {
+  if (obj.hitboxShape === "cylinder") {
+    staticGrid.insert({ x: obj.x, z: obj.z, radius: obj.hitboxRadius });
+  }
+}
 
 interface Client {
   id: ClientId;
@@ -98,7 +87,7 @@ export class Room {
       weapon: "none", dancing: false, joined: false, lastShotAt: 0, reloadingUntil: 0,
       killStreak: 0, onRampage: false,
     });
-    const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick };
+    const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick, map: mapConfig };
     ws.send(JSON.stringify(handshake));
     const objList: ServerMessage = { type: "objectList", objects: Array.from(this.placedObjects.values()) };
     ws.send(JSON.stringify(objList));

@@ -106,6 +106,22 @@ Build the server before deploying: `npm run build:server`
 
 The `Room` class in `server/Room.ts` is the natural boundary for sharding — each room runs an independent game loop, and you can route players into rooms by a `roomId` query param on the WebSocket URL.
 
+## Maps & levels
+
+Maps are defined as JSON files in `maps/`. Each map contains environment settings (sky, fog, lighting), static objects (immovable level geometry), and placed objects (builder-authored decoration). See the schema notes in `maps/README.md` once that directory is created.
+
+### Object permissions — ⚠️ revisit when auth is added
+
+The level editor currently has no access control. The intended permission model once sign-in/sign-up is implemented:
+
+| Role | Can do |
+|---|---|
+| **Admin / Dev** | Edit `staticObjects` directly in the map JSON; full in-game editor access |
+| **Builder** | Place, move, and delete `placedObjects` in-game via the level editor |
+| **Regular user** | Cannot select, move, or delete any placed or static objects |
+
+`staticObjects` (trees, houses, core level geometry) should only be editable by admins — ideally only via direct JSON editing, not the in-game editor. `placedObjects` are builder territory. When auth lands, `placedObjects` entries may gain an optional `lockedBy` / `requiredRole` field for finer per-object control (e.g. a builder locking a specific piece so other builders can't move it).
+
 ## Adding features
 
 - **Shooting**: add a `shoot` client message type; server validates rate-of-fire, spawns a projectile in the room's game loop, broadcasts hits.

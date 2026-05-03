@@ -5,21 +5,21 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
-import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon, ScoreEntry, PlacedObject } from "../server/types";
+import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon, ScoreEntry, PlacedObject, MapConfig, StaticObject } from "../server/types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "ws://localhost:3001";
 const LERP_FACTOR = 0.2;
 const MAX_HEALTH = 100;
 
 // ---------------------------------------------------------------------------
-function buildGround(): THREE.Group {
+function buildGround(size: number, colorHex: number): THREE.Group {
   const group = new THREE.Group();
-  const geo = new THREE.PlaneGeometry(40, 40);
-  const mat = new THREE.MeshLambertMaterial({ color: 0x3a7d44 });
+  const geo = new THREE.PlaneGeometry(size, size);
+  const mat = new THREE.MeshLambertMaterial({ color: colorHex });
   const plane = new THREE.Mesh(geo, mat);
   plane.rotation.x = -Math.PI / 2;
   group.add(plane);
-  const grid = new THREE.GridHelper(40, 40, 0x2a5d34, 0x2a5d34);
+  const grid = new THREE.GridHelper(size, size, 0x2a5d34, 0x2a5d34);
   grid.position.y = 0.005;
   group.add(grid);
   return group;
@@ -186,26 +186,10 @@ export default function GameCanvas({ playerName }: Props) {
     camera.position.set(d, d * 0.816, d);
     camera.lookAt(0, 0.8, 0);
 
-    // ---- Lights ----
-    scene.add(new THREE.AmbientLight(0xd0e8ff, 0.6));
-    const sun = new THREE.DirectionalLight(0xfff5e0, 1.2);
-    sun.position.set(28, 20, 8);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.near = 0.5;
-    sun.shadow.camera.far = 80;
-    sun.shadow.camera.left = -28;
-    sun.shadow.camera.right = 28;
-    sun.shadow.camera.top = 28;
-    sun.shadow.camera.bottom = -28;
-    sun.shadow.bias = -0.001;
-    scene.add(sun);
-
-    const groundGroup = buildGround();
-    groundGroup.traverse((child) => {
-      if (child instanceof THREE.Mesh) child.receiveShadow = true;
-    });
-    scene.add(groundGroup);
+    // Lights and ground are applied when the map config arrives via handshake.
+    // Declare mutable holders so applyMap can replace them on reconnect.
+    let mapLights: THREE.Object3D[] = [];
+    let mapGround: THREE.Group | null = null;
 
     // ---- Transform gizmo ----
     const transformControls = new TransformControls(camera, renderer.domElement);
@@ -306,29 +290,10 @@ export default function GameCanvas({ playerName }: Props) {
     // ---- Debug wireframes ----
     const CLIENT_PLAYER_RADIUS = 0.25;
     interface ClientCollider { x: number; z: number; radius: number }
-    const clientColliders: ClientCollider[] = [
-      ...( [[-8,-8],[8,-8],[-8,8],[8,8],[0,-14],[0,14],[-14,0],[14,0],[-12,12],[12,-12]] as [number,number][] )
-        .map(([x,z]) => ({ x, z, radius: 0.4 })),
-      ...( [[-16,-16],[0,-16],[16,-16],[-16,0],[16,0],[-16,16],[0,16],[16,16],
-            [-10,-10],[10,-10],[-10,10],[10,10],[-5,-5],[5,-5],[-5,5],[5,5],
-            [-10,0],[10,0],[0,-10],[0,10]] as [number,number][] )
-        .map(([x,z]) => ({ x, z, radius: 0.75 })),
-    ];
-
+    // Populated by applyMap once the server handshake delivers the map config
+    const clientColliders: ClientCollider[] = [];
     let debugVisible = false;
     const debugMeshes: THREE.Mesh[] = [];
-    for (const col of clientColliders) {
-      const isHouse = col.radius > 0.5;
-      const geo = isHouse
-        ? new THREE.BoxGeometry(col.radius * 2, 2, col.radius * 2)
-        : new THREE.CylinderGeometry(col.radius, col.radius, 2, 16);
-      const mat = new THREE.MeshBasicMaterial({ color: isHouse ? 0xff4400 : 0x00ff88, wireframe: true });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(col.x, 1, col.z);
-      mesh.visible = false;
-      scene.add(mesh);
-      debugMeshes.push(mesh);
-    }
 
     // ---- Input ----
     const keys = { w: false, a: false, s: false, d: false, q: false, e: false };
@@ -597,50 +562,85 @@ export default function GameCanvas({ playerName }: Props) {
       if (++loadedCount === 2) onBothLoaded();
     });
 
-    // ---- Static objects ----
-    function spawnGltf(url: string, positions: [number, number][], rotations?: number[]) {
-      loader.load(url, (gltf) => {
-        positions.forEach(([ox, oz], i) => {
-          const obj = gltf.scene.clone(true);
-          obj.position.set(ox, 0, oz);
-          if (rotations) obj.rotation.y = rotations[i] ?? 0;
-          scene.add(obj);
-          obj.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-              occluders.push(child);
-              child.castShadow = true;
-              child.receiveShadow = true;
-            }
-          });
+    // Static objects are spawned by applyMap when the server sends the map config.
+
+    // ---- Map config application ----
+    function applyMap(map: MapConfig) {
+      if (!mount) return;
+      // Sky gradient
+      mount.style.background = `linear-gradient(180deg, ${map.environment.sky.top} 0%, ${map.environment.sky.mid} 40%, ${map.environment.sky.horizon} 100%)`;
+
+      // Fog
+      scene.fog = new THREE.Fog(new THREE.Color(map.environment.fog.color), map.environment.fog.near, map.environment.fog.far);
+
+      // Replace lights
+      for (const l of mapLights) scene.remove(l);
+      mapLights = [];
+
+      const ambient = new THREE.AmbientLight(new THREE.Color(map.environment.ambientLight.color), map.environment.ambientLight.intensity);
+      scene.add(ambient);
+      mapLights.push(ambient);
+
+      const sunLight = new THREE.DirectionalLight(new THREE.Color(map.environment.sun.color), map.environment.sun.intensity);
+      sunLight.position.set(map.environment.sun.x, map.environment.sun.y, map.environment.sun.z);
+      sunLight.castShadow = true;
+      sunLight.shadow.mapSize.set(2048, 2048);
+      sunLight.shadow.camera.near = 0.5;
+      sunLight.shadow.camera.far = 80;
+      sunLight.shadow.camera.left = -28;
+      sunLight.shadow.camera.right = 28;
+      sunLight.shadow.camera.top = 28;
+      sunLight.shadow.camera.bottom = -28;
+      sunLight.shadow.bias = -0.001;
+      scene.add(sunLight);
+      mapLights.push(sunLight);
+
+      // Ground
+      if (mapGround) scene.remove(mapGround);
+      mapGround = buildGround(map.groundSize, parseInt(map.environment.groundColor.slice(1), 16));
+      mapGround.traverse((child) => { if (child instanceof THREE.Mesh) child.receiveShadow = true; });
+      scene.add(mapGround);
+
+      // Static objects — group by URL so each GLTF is fetched once
+      const byUrl = new Map<string, StaticObject[]>();
+      for (const obj of map.staticObjects) {
+        const list = byUrl.get(obj.url) ?? [];
+        list.push(obj);
+        byUrl.set(obj.url, list);
+      }
+      for (const [url, objs] of byUrl) {
+        loader.load(url, (gltf) => {
+          for (const obj of objs) {
+            const mesh = gltf.scene.clone(true);
+            mesh.position.set(obj.x, 0, obj.z);
+            mesh.rotation.y = obj.rotY;
+            scene.add(mesh);
+            mesh.traverse((child) => {
+              if (child instanceof THREE.Mesh) {
+                occluders.push(child);
+                child.castShadow = true;
+                child.receiveShadow = true;
+              }
+            });
+          }
         });
-      });
+      }
+
+      // Client-side colliders + debug wireframes
+      for (const obj of map.staticObjects) {
+        clientColliders.push({ x: obj.x, z: obj.z, radius: obj.hitboxRadius });
+        const big = obj.hitboxRadius > 0.5;
+        const geo = big
+          ? new THREE.BoxGeometry(obj.hitboxRadius * 2, 2, obj.hitboxRadius * 2)
+          : new THREE.CylinderGeometry(obj.hitboxRadius, obj.hitboxRadius, 2, 16);
+        const mat = new THREE.MeshBasicMaterial({ color: big ? 0xff4400 : 0x00ff88, wireframe: true });
+        const dbMesh = new THREE.Mesh(geo, mat);
+        dbMesh.position.set(obj.x, 1, obj.z);
+        dbMesh.visible = debugVisible;
+        scene.add(dbMesh);
+        debugMeshes.push(dbMesh);
+      }
     }
-
-    spawnGltf("/tree.gltf", [
-      [-8, -8], [8, -8], [-8, 8], [8, 8],
-      [0, -14], [0, 14], [-14, 0], [14, 0],
-      [-12, 12], [12, -12],
-    ]);
-
-    spawnGltf("/house.gltf", [
-      // Outer corners
-      [-16, -16], [0, -16], [16, -16],
-      [-16,   0],            [16,   0],
-      [-16,  16], [0,  16], [16,  16],
-      // Mid ring
-      [-10, -10], [10, -10], [-10, 10], [10, 10],
-      // Inner cluster
-      [ -5,  -5], [ 5,  -5], [ -5,  5], [ 5,  5],
-      // Corridor blockers
-      [-10,   0], [10,   0], [0, -10], [0,  10],
-    ], [
-      0, 0, Math.PI / 2,
-      Math.PI / 2, Math.PI / 2,
-      Math.PI, Math.PI, Math.PI * 1.5,
-      Math.PI / 4, Math.PI * 1.25, Math.PI * 0.75, Math.PI * 1.75,
-      0, Math.PI / 2, Math.PI, Math.PI * 1.5,
-      0, Math.PI, Math.PI / 2, Math.PI * 1.5,
-    ]);
 
     // ---- Placed object helpers ----
     function loadGltfCached(url: string): Promise<THREE.Group> {
@@ -1045,6 +1045,7 @@ export default function GameCanvas({ playerName }: Props) {
       if (msg.type === "handshake") {
         myId = msg.yourId;
         myIdRef.current = msg.yourId;
+        applyMap(msg.map);
       }
 
       if (msg.type === "snapshot") {

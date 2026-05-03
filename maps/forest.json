@@ -1,0 +1,66 @@
+{
+  "id": "forest",
+  "name": "Forest",
+  "bounds": 19.5,
+  "groundSize": 40,
+  "environment": {
+    "sky": {
+      "top": "#0a3d8f",
+      "mid": "#3b9fef",
+      "horizon": "#d4eeff"
+    },
+    "fog": {
+      "color": "#d4eeff",
+      "near": 30,
+      "far": 60
+    },
+    "sun": {
+      "x": 28,
+      "y": 20,
+      "z": 8,
+      "color": "#fff5e0",
+      "intensity": 1.2
+    },
+    "ambientLight": {
+      "color": "#d0e8ff",
+      "intensity": 0.6
+    },
+    "groundColor": "#3a7d44"
+  },
+  "spawnPoints": [
+    { "x": 0, "z": 0 }
+  ],
+  "staticObjects": [
+    { "url": "/tree.gltf", "x": -8,  "z": -8,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
+    { "url": "/tree.gltf", "x":  8,  "z": -8,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
+    { "url": "/tree.gltf", "x": -8,  "z":  8,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
+    { "url": "/tree.gltf", "x":  8,  "z":  8,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
+    { "url": "/tree.gltf", "x":  0,  "z": -14, "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
+    { "url": "/tree.gltf", "x":  0,  "z":  14, "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
+    { "url": "/tree.gltf", "x": -14, "z":  0,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
+    { "url": "/tree.gltf", "x":  14, "z":  0,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
+    { "url": "/tree.gltf", "x": -12, "z":  12, "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
+    { "url": "/tree.gltf", "x":  12, "z": -12, "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
+
+    { "url": "/house.gltf", "x": -16, "z": -16, "rotY": 0,          "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":   0, "z": -16, "rotY": 0,          "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":  16, "z": -16, "rotY": 1.5707963,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x": -16, "z":   0, "rotY": 1.5707963,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":  16, "z":   0, "rotY": 1.5707963,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x": -16, "z":  16, "rotY": 3.1415926,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":   0, "z":  16, "rotY": 3.1415926,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":  16, "z":  16, "rotY": 4.7123889,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x": -10, "z": -10, "rotY": 0.7853981,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":  10, "z": -10, "rotY": 3.9269908,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x": -10, "z":  10, "rotY": 2.3561944,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":  10, "z":  10, "rotY": 5.4977871,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":  -5, "z":  -5, "rotY": 0,          "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":   5, "z":  -5, "rotY": 1.5707963,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":  -5, "z":   5, "rotY": 3.1415926,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":   5, "z":   5, "rotY": 4.7123889,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x": -10, "z":   0, "rotY": 0,          "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":  10, "z":   0, "rotY": 3.1415926,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":   0, "z": -10, "rotY": 1.5707963,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
+    { "url": "/house.gltf", "x":   0, "z":  10, "rotY": 4.7123889,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 }
+  ]
+}
