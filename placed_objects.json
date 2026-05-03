@@ -44,9 +44,9 @@
     "z": 1.535171648926907,
     "rotY": -4.71553057303828,
     "scale": 1,
-    "hitboxShape": "cylinder",
-    "hitboxRadius": 1,
-    "hitboxOffsetX": 0,
+    "hitboxShape": "box",
+    "hitboxRadius": 0.45,
+    "hitboxOffsetX": -0.1,
     "hitboxOffsetZ": 0
   }
 ]
