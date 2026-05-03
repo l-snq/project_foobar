@@ -95,7 +95,13 @@ export default function Home() {
     setSiLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email: siEmail, password: siPassword });
     setSiLoading(false);
-    if (error) setSiError(error.message);
+    if (error) {
+      setSiError(
+        error.message.toLowerCase().includes("not confirmed")
+          ? "Please confirm your email before signing in. Check your inbox."
+          : error.message
+      );
+    }
     // onAuthStateChange → SIGNED_IN handles the rest
   }
 
