@@ -68,8 +68,9 @@ interface RemotePlayer {
   walkActionUnarmed: THREE.AnimationAction;
   walkActionPistol: THREE.AnimationAction;
   danceAction: THREE.AnimationAction | null;
+  breakdanceAction: THREE.AnimationAction | null;
   reloadAction: THREE.AnimationAction | null;
-  dancing: boolean;
+  emote: string | null;
   reloading: boolean;
   targetX: number;
   targetY: number;
@@ -115,6 +116,7 @@ export default function GameCanvas({ playerName }: Props) {
   const [isUploading, setIsUploading] = useState(false);
   const [inPlacementMode, setInPlacementMode] = useState(false);
   const [currentMapId, setCurrentMapId] = useState("forest");
+  const [emoteWheelOpen, setEmoteWheelOpen] = useState(false);
   const [mapReloadToken, setMapReloadToken] = useState(0);
   const [selectedObjId, setSelectedObjId] = useState<string | null>(null);
   const [selectedObjScale, setSelectedObjScale] = useState(1);
@@ -344,6 +346,33 @@ export default function GameCanvas({ playerName }: Props) {
 
       const k = e.key.toLowerCase();
       if (k in keys) (keys as Record<string, boolean>)[k] = true;
+
+      // Emote selection while holding R
+      if (rHeld && weaponRef.current !== "pistol") {
+        if (k === "1" && !currentEmote && danceAction && walkUnarmed && mixerUnarmed) {
+          currentEmote = "dance";
+          rHeld = false;
+          setEmoteWheelOpen(false);
+          walkUnarmed.setEffectiveWeight(0);
+          walkUnarmed.paused = true;
+          danceAction.reset();
+          danceAction.setEffectiveWeight(1);
+          danceAction.play();
+          return;
+        }
+        if (k === "2" && !currentEmote && breakdanceAction && walkUnarmed && mixerUnarmed) {
+          currentEmote = "breakdance";
+          rHeld = false;
+          setEmoteWheelOpen(false);
+          walkUnarmed.setEffectiveWeight(0);
+          walkUnarmed.paused = true;
+          breakdanceAction.reset();
+          breakdanceAction.setEffectiveWeight(1);
+          breakdanceAction.play();
+          return;
+        }
+      }
+
       if (k === "1") {
         const next: Weapon = weaponRef.current === "pistol" ? "none" : "pistol";
         weaponRef.current = next;
@@ -352,13 +381,9 @@ export default function GameCanvas({ playerName }: Props) {
       if (k === "r") {
         if (weaponRef.current === "pistol") {
           triggerReload();
-        } else if (!isDancing && danceAction && walkUnarmed && mixerUnarmed) {
-          isDancing = true;
-          walkUnarmed.setEffectiveWeight(0);
-          walkUnarmed.paused = true;
-          danceAction.reset();
-          danceAction.setEffectiveWeight(1);
-          danceAction.play();
+        } else if (!currentEmote) {
+          rHeld = true;
+          setEmoteWheelOpen(true);
         }
       }
     }
@@ -370,6 +395,10 @@ export default function GameCanvas({ playerName }: Props) {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
       const k = e.key.toLowerCase();
       if (k in keys) (keys as Record<string, boolean>)[k] = false;
+      if (k === "r") {
+        rHeld = false;
+        setEmoteWheelOpen(false);
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
@@ -441,8 +470,10 @@ export default function GameCanvas({ playerName }: Props) {
     let walkUnarmed: THREE.AnimationAction | null = null;
     let walkPistol: THREE.AnimationAction | null = null;
     let danceAction: THREE.AnimationAction | null = null;
+    let breakdanceAction: THREE.AnimationAction | null = null;
     let reloadAction: THREE.AnimationAction | null = null;
-    let isDancing = false;
+    let currentEmote: string | null = null;
+    let rHeld = false;
     let localDead = false;
     let localGhostUnarmed: THREE.Mesh | null = null;
     let localGhostPistol: THREE.Mesh | null = null;
@@ -503,17 +534,24 @@ export default function GameCanvas({ playerName }: Props) {
         walkUnarmed.setEffectiveWeight(0);
       }
       const danceClip = gltf.animations.find((a) => a.name === "dance");
-      if (danceClip && mixerUnarmed) {
-        danceAction = mixerUnarmed.clipAction(danceClip);
-        danceAction.setLoop(THREE.LoopOnce, 1);
-        danceAction.clampWhenFinished = true;
-        danceAction.setEffectiveWeight(0);
-        // Listen for the animation finishing so we can return to idle
+      const breakdanceClip = gltf.animations.find((a) => a.name === "Breakdance");
+      if (mixerUnarmed) {
+        if (danceClip) {
+          danceAction = mixerUnarmed.clipAction(danceClip);
+          danceAction.setLoop(THREE.LoopOnce, 1);
+          danceAction.clampWhenFinished = true;
+          danceAction.setEffectiveWeight(0);
+        }
+        if (breakdanceClip) {
+          breakdanceAction = mixerUnarmed.clipAction(breakdanceClip);
+          breakdanceAction.setLoop(THREE.LoopRepeat, Infinity);
+          breakdanceAction.setEffectiveWeight(0);
+        }
         mixerUnarmed.addEventListener("finished", (e) => {
-          if (e.action === danceAction) {
-            isDancing = false;
-            danceAction!.setEffectiveWeight(0);
-            danceAction!.stop();
+          if (e.action === danceAction || e.action === breakdanceAction) {
+            currentEmote = null;
+            (e.action as THREE.AnimationAction).setEffectiveWeight(0);
+            (e.action as THREE.AnimationAction).stop();
             if (walkUnarmed) {
               walkUnarmed.paused = true;
               walkUnarmed.setEffectiveWeight(0);
@@ -928,20 +966,28 @@ export default function GameCanvas({ playerName }: Props) {
       unarmed.root.add(label);
       pistol.root.add(makeNameLabel(state.name));
 
-      // Set up dance on the unarmed mixer (only unarmed model has the clip)
+      // Set up emote actions on the unarmed mixer
       let remoteDanceAction: THREE.AnimationAction | null = null;
-      const danceClip = tplUnarmed.animations.find((a) => a.name === "dance");
-      if (danceClip) {
-        remoteDanceAction = unarmed.mixer.clipAction(danceClip.clone());
+      let remoteBreakdanceAction: THREE.AnimationAction | null = null;
+      const remDanceClip = tplUnarmed.animations.find((a) => a.name === "dance");
+      const remBreakdanceClip = tplUnarmed.animations.find((a) => a.name === "Breakdance");
+      if (remDanceClip) {
+        remoteDanceAction = unarmed.mixer.clipAction(remDanceClip.clone());
         remoteDanceAction.setLoop(THREE.LoopOnce, 1);
         remoteDanceAction.clampWhenFinished = true;
         remoteDanceAction.setEffectiveWeight(0);
         const da = remoteDanceAction;
         unarmed.mixer.addEventListener("finished", (e) => {
-          if (e.action === da) {
-            da.setEffectiveWeight(0);
-            da.stop();
-          }
+          if (e.action === da) { da.setEffectiveWeight(0); da.stop(); }
+        });
+      }
+      if (remBreakdanceClip) {
+        remoteBreakdanceAction = unarmed.mixer.clipAction(remBreakdanceClip.clone());
+        remoteBreakdanceAction.setLoop(THREE.LoopRepeat, Infinity);
+        remoteBreakdanceAction.setEffectiveWeight(0);
+        const bda = remoteBreakdanceAction;
+        unarmed.mixer.addEventListener("finished", (e) => {
+          if (e.action === bda) { bda.setEffectiveWeight(0); bda.stop(); }
         });
       }
 
@@ -974,8 +1020,9 @@ export default function GameCanvas({ playerName }: Props) {
         walkActionUnarmed: unarmed.walkAction,
         walkActionPistol: pistol.walkAction,
         danceAction: remoteDanceAction,
+        breakdanceAction: remoteBreakdanceAction,
         reloadAction: remoteReloadAction,
-        dancing: state.dancing,
+        emote: state.emote,
         reloading: state.reloading,
         targetX: state.x,
         targetY: state.y,
@@ -1002,7 +1049,7 @@ export default function GameCanvas({ playerName }: Props) {
       remote.moving = p.moving;
       remote.weapon = p.weapon;
       remote.health = p.health;
-      remote.dancing = p.dancing;
+      remote.emote = p.emote;
       remote.reloading = p.reloading;
       if (remote.dead && p.health > 0) remote.dead = false;
     }
@@ -1224,7 +1271,7 @@ export default function GameCanvas({ playerName }: Props) {
       ws.send(JSON.stringify({
         type: "input", x: inputX, z: inputZ, rotY,
         weapon: weaponRef.current,
-        dancing: isDancing,
+        emote: currentEmote,
       } satisfies ClientMessage));
     }
 
@@ -1357,7 +1404,13 @@ export default function GameCanvas({ playerName }: Props) {
 
       // Walk / dance / reload animation — drive whichever local model is active
       const isMoving = input.lengthSq() > 0;
-      if (isDancing) {
+      if (currentEmote === "breakdance" && isMoving) {
+        currentEmote = null;
+        if (breakdanceAction) { breakdanceAction.setEffectiveWeight(0); breakdanceAction.stop(); }
+        if (walkUnarmed) { walkUnarmed.paused = false; walkUnarmed.setEffectiveWeight(1); }
+      }
+
+      if (currentEmote !== null) {
         if (mixerUnarmed) mixerUnarmed.update(dt);
       } else if (isReloadingRef.current && currentWeapon === "pistol") {
         if (mixerPistol) mixerPistol.update(dt);
@@ -1374,8 +1427,8 @@ export default function GameCanvas({ playerName }: Props) {
       // Remote players
       for (const remote of remotePlayers.values()) {
         if (remote.dead) { remote.ghost.visible = false; continue; }
-        // Dancing forces unarmed model
-        const isPistol = !remote.dancing && remote.weapon === "pistol";
+        // Emoting forces unarmed model
+        const isPistol = !remote.emote && remote.weapon === "pistol";
         remote.rootUnarmed.visible = !isPistol;
         remote.rootPistol.visible = isPistol;
 
@@ -1389,13 +1442,14 @@ export default function GameCanvas({ playerName }: Props) {
         inactiveRoot.position.copy(activeRoot.position);
         inactiveRoot.rotation.copy(activeRoot.rotation);
 
-        if (remote.dancing) {
-          if (remote.danceAction && remote.danceAction.weight === 0) {
+        if (remote.emote) {
+          const emoteAction = remote.emote === "breakdance" ? remote.breakdanceAction : remote.danceAction;
+          if (emoteAction && emoteAction.weight === 0) {
             remote.walkActionUnarmed.setEffectiveWeight(0);
             remote.walkActionUnarmed.paused = true;
-            remote.danceAction.reset();
-            remote.danceAction.setEffectiveWeight(1);
-            remote.danceAction.play();
+            emoteAction.reset();
+            emoteAction.setEffectiveWeight(1);
+            emoteAction.play();
           }
           remote.mixerUnarmed.update(dt);
         } else if (remote.reloading && isPistol) {
@@ -1411,6 +1465,10 @@ export default function GameCanvas({ playerName }: Props) {
           if (remote.danceAction && remote.danceAction.weight > 0) {
             remote.danceAction.setEffectiveWeight(0);
             remote.danceAction.stop();
+          }
+          if (remote.breakdanceAction && remote.breakdanceAction.weight > 0) {
+            remote.breakdanceAction.setEffectiveWeight(0);
+            remote.breakdanceAction.stop();
           }
           if (remote.reloadAction && remote.reloadAction.weight > 0) {
             remote.reloadAction.setEffectiveWeight(0);
@@ -1675,6 +1733,43 @@ export default function GameCanvas({ playerName }: Props) {
           </span>
         </div>
       </div>
+
+      {/* Emote wheel */}
+      {emoteWheelOpen && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
+          <div
+            className="flex gap-4 px-6 py-4 rounded-2xl"
+            style={{
+              background: "linear-gradient(160deg, rgba(0,20,10,0.82) 0%, rgba(0,40,20,0.75) 100%)",
+              border: "1px solid rgba(80,220,120,0.35)",
+              backdropFilter: "blur(18px)",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)",
+            }}
+          >
+            {([
+              { key: "1", label: "Dance" },
+              { key: "2", label: "Breakdance" },
+            ] as const).map(({ key, label }) => (
+              <div key={key} className="flex flex-col items-center gap-1.5">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm"
+                  style={{
+                    background: "linear-gradient(180deg, rgba(80,220,120,0.3) 0%, rgba(30,120,60,0.3) 100%)",
+                    border: "1px solid rgba(80,220,120,0.5)",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2)",
+                    color: "#a0ffb8",
+                  }}
+                >
+                  {key}
+                </div>
+                <span className="text-xs font-semibold" style={{ color: "rgba(180,255,200,0.8)" }}>
+                  {label}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Rampage announcement */}
       {rampageAnnouncement && (

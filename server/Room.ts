@@ -37,7 +37,7 @@ interface Client {
   inputZ: number;
   rotY: number;
   weapon: Weapon;
-  dancing: boolean;
+  emote: string | null;
   joined: boolean;
   lastShotAt: number;
   reloadingUntil: number;
@@ -107,7 +107,7 @@ export class Room {
     this.clients.set(id, {
       id, ws, name: "Player",
       inputX: 0, inputZ: 0, rotY: 0,
-      weapon: "none", dancing: false, joined: false, lastShotAt: 0, reloadingUntil: 0,
+      weapon: "none", emote: null, joined: false, lastShotAt: 0, reloadingUntil: 0,
       killStreak: 0, onRampage: false,
     });
     const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick, map: this.map };
@@ -143,7 +143,7 @@ export class Room {
         id, name, x: 0, y: 0, z: 0, rotY: 0,
         moving: false, weapon: "none",
         health: MAX_HEALTH, maxHealth: MAX_HEALTH,
-        dancing: false, ammo: MAX_AMMO, reloading: false, onRampage: false,
+        emote: null, ammo: MAX_AMMO, reloading: false, onRampage: false,
       });
       this.scores.set(id, { id, name, kills: 0, deaths: 0 });
       return;
@@ -157,7 +157,7 @@ export class Room {
       client.inputZ = len > 1 ? msg.z / len : msg.z;
       client.rotY = msg.rotY;
       client.weapon = msg.weapon;
-      client.dancing = msg.dancing;
+      client.emote = msg.emote;
     }
 
     if (msg.type === "shoot") {
@@ -306,7 +306,7 @@ export class Room {
       state.moving = moving;
       state.rotY = client.rotY;
       state.weapon = client.weapon;
-      state.dancing = client.dancing;
+      state.emote = client.emote;
       state.reloading = client.reloadingUntil > Date.now();
       state.onRampage = client.onRampage;
 

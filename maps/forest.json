@@ -28,12 +28,17 @@
     "groundColor": "#3a7d44"
   },
   "spawnPoints": [
-    { "x": 0, "z": 0 }
+    {
+      "x": 0,
+      "z": 0
+    }
   ],
   "doors": [
     {
-      "x": 0, "z": -18, "rotY": 0,
-      "triggerRadius": 2.0,
+      "x": 0,
+      "z": -18,
+      "rotY": 0,
+      "triggerRadius": 2,
       "targetMapId": "river",
       "label": "River Valley",
       "requiredRole": null
@@ -41,36 +46,245 @@
   ],
   "waterZones": [],
   "staticObjects": [
-    { "url": "/tree.gltf", "x": -8,  "z": -8,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
-    { "url": "/tree.gltf", "x":  8,  "z": -8,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
-    { "url": "/tree.gltf", "x": -8,  "z":  8,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
-    { "url": "/tree.gltf", "x":  8,  "z":  8,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
-    { "url": "/tree.gltf", "x":  0,  "z": -14, "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
-    { "url": "/tree.gltf", "x":  0,  "z":  14, "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
-    { "url": "/tree.gltf", "x": -14, "z":  0,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
-    { "url": "/tree.gltf", "x":  14, "z":  0,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
-    { "url": "/tree.gltf", "x": -12, "z":  12, "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
-    { "url": "/tree.gltf", "x":  12, "z": -12, "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
-
-    { "url": "/house.gltf", "x": -16, "z": -16, "rotY": 0,          "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":   0, "z": -16, "rotY": 0,          "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":  16, "z": -16, "rotY": 1.5707963,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x": -16, "z":   0, "rotY": 1.5707963,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":  16, "z":   0, "rotY": 1.5707963,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x": -16, "z":  16, "rotY": 3.1415926,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":   0, "z":  16, "rotY": 3.1415926,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":  16, "z":  16, "rotY": 4.7123889,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x": -10, "z": -10, "rotY": 0.7853981,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":  10, "z": -10, "rotY": 3.9269908,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x": -10, "z":  10, "rotY": 2.3561944,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":  10, "z":  10, "rotY": 5.4977871,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":  -5, "z":  -5, "rotY": 0,          "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":   5, "z":  -5, "rotY": 1.5707963,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":  -5, "z":   5, "rotY": 3.1415926,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":   5, "z":   5, "rotY": 4.7123889,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x": -10, "z":   0, "rotY": 0,          "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":  10, "z":   0, "rotY": 3.1415926,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":   0, "z": -10, "rotY": 1.5707963,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 },
-    { "url": "/house.gltf", "x":   0, "z":  10, "rotY": 4.7123889,  "hitboxShape": "cylinder", "hitboxRadius": 0.75 }
+    {
+      "url": "/tree.gltf",
+      "x": -8,
+      "z": -8,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.4
+    },
+    {
+      "url": "/tree.gltf",
+      "x": 8,
+      "z": -8,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.4
+    },
+    {
+      "url": "/tree.gltf",
+      "x": -8,
+      "z": 8,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.4
+    },
+    {
+      "url": "/tree.gltf",
+      "x": 8,
+      "z": 8,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.4
+    },
+    {
+      "url": "/tree.gltf",
+      "x": 0,
+      "z": -14,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.4
+    },
+    {
+      "url": "/tree.gltf",
+      "x": 0,
+      "z": 14,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.4
+    },
+    {
+      "url": "/tree.gltf",
+      "x": -14,
+      "z": 0,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.4
+    },
+    {
+      "url": "/tree.gltf",
+      "x": 14,
+      "z": 0,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.4
+    },
+    {
+      "url": "/tree.gltf",
+      "x": -12,
+      "z": 12,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.4
+    },
+    {
+      "url": "/tree.gltf",
+      "x": 12,
+      "z": -12,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.4
+    },
+    {
+      "url": "/house.gltf",
+      "x": -16,
+      "z": -16,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": 0,
+      "z": -16,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": 16,
+      "z": -16,
+      "rotY": 1.5707963,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": -16,
+      "z": 0,
+      "rotY": 1.5707963,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": 16,
+      "z": 0,
+      "rotY": 1.5707963,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": -16,
+      "z": 16,
+      "rotY": 3.1415926,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": 0,
+      "z": 16,
+      "rotY": 3.1415926,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": 16,
+      "z": 16,
+      "rotY": 4.7123889,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": -10,
+      "z": -10,
+      "rotY": 0.7853981,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": 10,
+      "z": -10,
+      "rotY": 3.9269908,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": -10,
+      "z": 10,
+      "rotY": 2.3561944,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": 10,
+      "z": 10,
+      "rotY": 5.4977871,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": -5,
+      "z": -5,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": 5,
+      "z": -5,
+      "rotY": 1.5707963,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": -5,
+      "z": 5,
+      "rotY": 3.1415926,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": 5,
+      "z": 5,
+      "rotY": 4.7123889,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": -10,
+      "z": 0,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": 10,
+      "z": 0,
+      "rotY": 3.1415926,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": 0,
+      "z": -10,
+      "rotY": 1.5707963,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    },
+    {
+      "url": "/house.gltf",
+      "x": 0,
+      "z": 10,
+      "rotY": 4.7123889,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.75
+    }
   ]
 }

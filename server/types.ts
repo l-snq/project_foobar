@@ -74,7 +74,7 @@ export interface PlayerState {
   weapon: Weapon;
   health: number;
   maxHealth: number;
-  dancing: boolean;
+  emote: string | null;
   ammo: number;
   reloading: boolean;
   onRampage: boolean;
@@ -92,7 +92,7 @@ export interface ProjectileState {
 // Client → Server
 export type ClientMessage =
   | { type: "join"; name: string }
-  | { type: "input"; x: number; z: number; rotY: number; weapon: Weapon; dancing: boolean }
+  | { type: "input"; x: number; z: number; rotY: number; weapon: Weapon; emote: string | null }
   | { type: "shoot"; dirX: number; dirZ: number }
   | { type: "reload" }
   | { type: "chat"; text: string }
