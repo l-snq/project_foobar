@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
-import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon, ScoreEntry, PlacedObject, MapConfig, StaticObject } from "../server/types";
+import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon, ScoreEntry, PlacedObject, MapConfig, StaticObject, DoorConfig } from "../server/types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "ws://localhost:3001";
 const LERP_FACTOR = 0.2;
@@ -72,6 +72,7 @@ interface RemotePlayer {
   dancing: boolean;
   reloading: boolean;
   targetX: number;
+  targetY: number;
   targetZ: number;
   targetRotY: number;
   moving: boolean;
@@ -113,6 +114,8 @@ export default function GameCanvas({ playerName }: Props) {
   const [rampageAnnouncement, setRampageAnnouncement] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [inPlacementMode, setInPlacementMode] = useState(false);
+  const [currentMapId, setCurrentMapId] = useState("forest");
+  const [mapReloadToken, setMapReloadToken] = useState(0);
   const [selectedObjId, setSelectedObjId] = useState<string | null>(null);
   const [selectedObjScale, setSelectedObjScale] = useState(1);
   const [selectedObjRotY, setSelectedObjRotY] = useState(0);
@@ -626,6 +629,52 @@ export default function GameCanvas({ playerName }: Props) {
         });
       }
 
+      // Water zones
+      for (const zone of map.waterZones) {
+        const waterGeo = new THREE.PlaneGeometry(zone.width, zone.height);
+        const waterMat = new THREE.MeshBasicMaterial({
+          color: 0x1a7bbf,
+          transparent: true,
+          opacity: 0.55,
+          side: THREE.DoubleSide,
+        });
+        const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+        waterMesh.rotation.x = -Math.PI / 2;
+        waterMesh.position.set(zone.x, 0.02, zone.z);
+        scene.add(waterMesh);
+      }
+
+      // Door trigger zones — glowing ring on ground + floating label
+      for (const door of map.doors) {
+        const ringGeo = new THREE.RingGeometry(door.triggerRadius - 0.12, door.triggerRadius + 0.12, 40);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0x44ffcc,
+          transparent: true,
+          opacity: 0.7,
+          side: THREE.DoubleSide,
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(door.x, 0.03, door.z);
+        scene.add(ring);
+
+        const labelDiv = document.createElement("div");
+        labelDiv.textContent = `→ ${door.label}`;
+        labelDiv.style.cssText = `
+          color: #44ffcc;
+          font-size: 13px;
+          font-family: sans-serif;
+          font-weight: 700;
+          text-shadow: 0 0 8px rgba(0,255,200,0.9), 0 1px 3px rgba(0,0,0,0.8);
+          pointer-events: none;
+          white-space: nowrap;
+          user-select: none;
+        `;
+        const doorLabel = new CSS2DObject(labelDiv);
+        doorLabel.position.set(door.x, 2.2, door.z);
+        scene.add(doorLabel);
+      }
+
       // Client-side colliders + debug wireframes
       for (const obj of map.staticObjects) {
         clientColliders.push({ x: obj.x, z: obj.z, radius: obj.hitboxRadius });
@@ -929,6 +978,7 @@ export default function GameCanvas({ playerName }: Props) {
         dancing: state.dancing,
         reloading: state.reloading,
         targetX: state.x,
+        targetY: state.y,
         targetZ: state.z,
         targetRotY: state.rotY,
         moving: state.moving,
@@ -946,6 +996,7 @@ export default function GameCanvas({ playerName }: Props) {
       }
       const remote = remotePlayers.get(p.id)!;
       remote.targetX = p.x;
+      remote.targetY = p.y;
       remote.targetZ = p.z;
       remote.targetRotY = p.rotY;
       remote.moving = p.moving;
@@ -1032,7 +1083,7 @@ export default function GameCanvas({ playerName }: Props) {
     }
 
     // ---- WebSocket ----
-    const ws = new WebSocket(SERVER_URL);
+    const ws = new WebSocket(`${SERVER_URL}?map=${currentMapId}`);
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -1157,6 +1208,14 @@ export default function GameCanvas({ playerName }: Props) {
         });
         setChatOpen(true);
       }
+
+      if (msg.type === "changeMap") {
+        setCurrentMapId(msg.targetMapId);
+      }
+
+      if (msg.type === "mapBaked") {
+        setMapReloadToken((t) => t + 1);
+      }
     };
 
     // ---- Send input ----
@@ -1232,6 +1291,7 @@ export default function GameCanvas({ playerName }: Props) {
           characterRoot.position.z += input.z * SPEED * dt;
         }
         characterRoot.position.x += (serverPos.x - characterRoot.position.x) * 0.1;
+        characterRoot.position.y += (serverPos.y - characterRoot.position.y) * 0.1;
         characterRoot.position.z += (serverPos.z - characterRoot.position.z) * 0.1;
 
         // Client-side collision (mirrors server) so prediction doesn't walk through objects
@@ -1323,6 +1383,7 @@ export default function GameCanvas({ playerName }: Props) {
         const inactiveRoot = isPistol ? remote.rootUnarmed : remote.rootPistol;
 
         activeRoot.position.x += (remote.targetX - activeRoot.position.x) * LERP_FACTOR;
+        activeRoot.position.y += (remote.targetY - activeRoot.position.y) * LERP_FACTOR;
         activeRoot.position.z += (remote.targetZ - activeRoot.position.z) * LERP_FACTOR;
         activeRoot.rotation.y += (remote.targetRotY - activeRoot.rotation.y) * LERP_FACTOR;
         inactiveRoot.position.copy(activeRoot.position);
@@ -1470,7 +1531,7 @@ export default function GameCanvas({ playerName }: Props) {
       if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
       if (mount.contains(labelRenderer.domElement)) mount.removeChild(labelRenderer.domElement);
     };
-  }, [playerName]);
+  }, [playerName, currentMapId, mapReloadToken]);
 
   // Auto-scroll chat
   const chatBoxRef = useRef<HTMLDivElement>(null);
@@ -1717,7 +1778,7 @@ export default function GameCanvas({ playerName }: Props) {
         </div>
       )}
 
-      {/* Import model button + placement mode */}
+      {/* Import model button + placement mode + bake */}
       <div className="absolute bottom-54 right-4 flex flex-col items-end gap-2 pointer-events-auto">
         {inPlacementMode ? (
           <div className="flex flex-col items-end gap-2">
@@ -1749,22 +1810,44 @@ export default function GameCanvas({ playerName }: Props) {
             </button>
           </div>
         ) : (
-          <button
-            className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden disabled:opacity-50"
-            style={{
-              background: "linear-gradient(160deg, rgba(255,255,255,0.15) 0%, rgba(60,180,100,0.1) 100%)",
-              border: "1px solid rgba(80,220,120,0.35)",
-              backdropFilter: "blur(10px)",
-              color: "rgba(200,255,220,0.9)",
-              boxShadow: "0 2px 10px rgba(0,160,60,0.25), inset 0 1px 0 rgba(255,255,255,0.25)",
-            }}
-            disabled={isUploading}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
-              style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 100%)" }} />
-            <span className="relative">{isUploading ? "Uploading…" : "Import Model"}</span>
-          </button>
+          <div className="flex flex-col items-end gap-2">
+            <button
+              className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden disabled:opacity-50"
+              style={{
+                background: "linear-gradient(160deg, rgba(255,255,255,0.15) 0%, rgba(60,180,100,0.1) 100%)",
+                border: "1px solid rgba(80,220,120,0.35)",
+                backdropFilter: "blur(10px)",
+                color: "rgba(200,255,220,0.9)",
+                boxShadow: "0 2px 10px rgba(0,160,60,0.25), inset 0 1px 0 rgba(255,255,255,0.25)",
+              }}
+              disabled={isUploading}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
+                style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 100%)" }} />
+              <span className="relative">{isUploading ? "Uploading…" : "Import Model"}</span>
+            </button>
+            <button
+              className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden"
+              style={{
+                background: "linear-gradient(160deg, rgba(255,220,80,0.18) 0%, rgba(180,120,0,0.12) 100%)",
+                border: "1px solid rgba(255,200,60,0.4)",
+                backdropFilter: "blur(10px)",
+                color: "rgba(255,230,120,0.95)",
+                boxShadow: "0 2px 10px rgba(200,140,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2)",
+              }}
+              onClick={() => {
+                const ws = wsRef.current;
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({ type: "bakeMap" } satisfies ClientMessage));
+                }
+              }}
+            >
+              <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
+                style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, transparent 100%)" }} />
+              <span className="relative">Bake to Map</span>
+            </button>
+          </div>
         )}
       </div>
 

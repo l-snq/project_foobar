@@ -7,8 +7,26 @@ export interface StaticObject {
   x: number;
   z: number;
   rotY: number;
+  scale?: number;
   hitboxShape: "cylinder" | "box";
   hitboxRadius: number;
+}
+
+export interface DoorConfig {
+  x: number;
+  z: number;
+  rotY: number;
+  triggerRadius: number;
+  targetMapId: string;
+  label: string;
+  requiredRole: string | null; // TODO: enforce when auth is added
+}
+
+export interface WaterZone {
+  x: number;  // center x
+  z: number;  // center z
+  width: number;  // x extent
+  height: number; // z extent
 }
 
 export interface MapEnvironment {
@@ -27,6 +45,8 @@ export interface MapConfig {
   environment: MapEnvironment;
   spawnPoints: { x: number; z: number }[];
   staticObjects: StaticObject[];
+  doors: DoorConfig[];
+  waterZones: WaterZone[];
 }
 
 export interface PlacedObject {
@@ -79,6 +99,7 @@ export type ClientMessage =
   | { type: "placeObject"; url: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number }
   | { type: "moveObject"; id: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number }
   | { type: "deleteObject"; id: string }
+  | { type: "bakeMap" }
 
 export interface ScoreEntry {
   id: ClientId;
@@ -100,3 +121,5 @@ export type ServerMessage =
   | { type: "objectPlaced"; object: PlacedObject }
   | { type: "objectMoved"; object: PlacedObject }
   | { type: "objectDeleted"; id: string }
+  | { type: "changeMap"; targetMapId: string }
+  | { type: "mapBaked" }

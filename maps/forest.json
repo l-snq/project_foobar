@@ -30,6 +30,16 @@
   "spawnPoints": [
     { "x": 0, "z": 0 }
   ],
+  "doors": [
+    {
+      "x": 0, "z": -18, "rotY": 0,
+      "triggerRadius": 2.0,
+      "targetMapId": "river",
+      "label": "River Valley",
+      "requiredRole": null
+    }
+  ],
+  "waterZones": [],
   "staticObjects": [
     { "url": "/tree.gltf", "x": -8,  "z": -8,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },
     { "url": "/tree.gltf", "x":  8,  "z": -8,  "rotY": 0, "hitboxShape": "cylinder", "hitboxRadius": 0.4 },

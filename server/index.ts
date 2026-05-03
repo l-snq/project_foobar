@@ -1,29 +1,39 @@
 import { WebSocketServer } from "ws";
 import { randomUUID } from "crypto";
-import { Room } from "./Room";
+import { readdirSync } from "fs";
+import { Room, MAP_DIR } from "./Room";
 
 const PORT = Number(process.env.PORT ?? 3001);
 
 const wss = new WebSocketServer({ port: PORT });
 
-// Single default room for now; extend to a room map keyed by roomId for matchmaking
-const defaultRoom = new Room("default");
+// Create one room per map file found in maps/
+const mapIds = readdirSync(MAP_DIR)
+  .filter((f) => f.endsWith(".json") && !f.endsWith(".placed.json"))
+  .map((f) => f.replace(".json", ""));
 
-wss.on("connection", (ws) => {
+const rooms = new Map<string, Room>(mapIds.map((id) => [id, new Room(id)]));
+console.log(`[server] Loaded maps: ${mapIds.join(", ")}`);
+
+wss.on("connection", (ws, req) => {
+  const params = new URLSearchParams(req.url?.split("?")[1] ?? "");
+  const mapId = params.get("map") ?? "forest";
+  const room = rooms.get(mapId) ?? rooms.get("forest")!;
+
   const id = randomUUID();
-  defaultRoom.add(id, ws);
+  room.add(id, ws);
 
   ws.on("message", (data) => {
-    defaultRoom.handleMessage(id, data.toString());
+    room.handleMessage(id, data.toString());
   });
 
   ws.on("close", () => {
-    defaultRoom.remove(id);
+    room.remove(id);
   });
 
   ws.on("error", (err) => {
     console.error(`[${id}] ws error:`, err.message);
-    defaultRoom.remove(id);
+    room.remove(id);
   });
 });
 

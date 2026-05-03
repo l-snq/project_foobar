@@ -1,10 +1,10 @@
 import { randomUUID } from "crypto";
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, writeFileSync, readdirSync } from "fs";
 import { join } from "path";
 import type { WebSocket } from "ws";
 import type {
   ClientId, PlayerState, ProjectileState, ScoreEntry,
-  ServerMessage, ClientMessage, Weapon, PlacedObject, MapConfig,
+  ServerMessage, ClientMessage, Weapon, PlacedObject, MapConfig, StaticObject,
 } from "./types";
 import { SpatialGrid } from "./SpatialGrid";
 
@@ -15,33 +15,19 @@ const MAX_CHAT_LEN = 200;
 const MAX_HEALTH = 100;
 
 // Pistol config
-const PROJECTILE_SPEED = 20;       // units/sec
-const PROJECTILE_LIFETIME = 2;     // seconds
-const PROJECTILE_RADIUS = 0.25;    // hit radius
+const PROJECTILE_SPEED = 20;
+const PROJECTILE_LIFETIME = 2;
+const PROJECTILE_RADIUS = 0.25;
 const PLAYER_RADIUS = 0.25;
 const PISTOL_DAMAGE = 25;
-const FIRE_RATE_MS = 400;          // min ms between shots per player
+const FIRE_RATE_MS = 400;
 const MAX_AMMO = 8;
-const RELOAD_MS = 1000;            // matches reload animation duration
+const RELOAD_MS = 1000;
 const RAMPAGE_KILLS = 10;
 const RAMPAGE_MAX_HEALTH = 200;
 const RAMPAGE_DAMAGE_MULT = 2;
 
-const MAP_DIR = join(process.cwd(), "maps");
-const MAP_ID = "forest";
-const OBJECTS_FILE = join(process.cwd(), "placed_objects.json");
-
-const mapConfig: MapConfig = JSON.parse(readFileSync(join(MAP_DIR, `${MAP_ID}.json`), "utf8"));
-const BOUNDS = mapConfig.bounds;
-const MAX_STATIC_RADIUS = Math.max(0.1, ...mapConfig.staticObjects.map((o) => o.hitboxRadius));
-
-const half = mapConfig.groundSize / 2;
-const staticGrid = new SpatialGrid(2, -half, -half, half, half);
-for (const obj of mapConfig.staticObjects) {
-  if (obj.hitboxShape === "cylinder") {
-    staticGrid.insert({ x: obj.x, z: obj.z, radius: obj.hitboxRadius });
-  }
-}
+export const MAP_DIR = join(process.cwd(), "maps");
 
 interface Client {
   id: ClientId;
@@ -54,16 +40,23 @@ interface Client {
   dancing: boolean;
   joined: boolean;
   lastShotAt: number;
-  reloadingUntil: number; // epoch ms, 0 = not reloading
+  reloadingUntil: number;
   killStreak: number;
   onRampage: boolean;
 }
 
 interface LiveProjectile extends ProjectileState {
-  age: number; // seconds
+  age: number;
 }
 
 export class Room {
+  private map: MapConfig;
+  private staticGrid: SpatialGrid;
+  private maxStaticRadius: number;
+  private bounds: number;
+  private objectsFile: string;
+  private pendingMapChange = new Set<ClientId>();
+
   private clients = new Map<ClientId, Client>();
   private states = new Map<ClientId, PlayerState>();
   private scores = new Map<ClientId, ScoreEntry>();
@@ -73,11 +66,41 @@ export class Room {
   private interval: ReturnType<typeof setInterval> | null = null;
 
   constructor(readonly id: string) {
+    this.map = JSON.parse(readFileSync(join(MAP_DIR, `${id}.json`), "utf8"));
+    this.bounds = this.map.bounds;
+    this.objectsFile = join(MAP_DIR, `${id}.placed.json`);
+
+    this.staticGrid = this.buildGrid();
+    this.maxStaticRadius = this.calcMaxStaticRadius();
+
     this.interval = setInterval(() => this.update(), TICK_MS);
     try {
-      const data = JSON.parse(readFileSync(OBJECTS_FILE, "utf8")) as PlacedObject[];
+      const data = JSON.parse(readFileSync(this.objectsFile, "utf8")) as PlacedObject[];
       for (const obj of data) this.placedObjects.set(obj.id, obj);
     } catch { /* file doesn't exist yet, start empty */ }
+  }
+
+  private buildGrid(): SpatialGrid {
+    const half = this.map.groundSize / 2;
+    const grid = new SpatialGrid(2, -half, -half, half, half);
+    for (const obj of this.map.staticObjects) {
+      if (obj.hitboxShape === "cylinder") {
+        grid.insert({ x: obj.x, z: obj.z, radius: obj.hitboxRadius });
+      }
+    }
+    return grid;
+  }
+
+  private calcMaxStaticRadius(): number {
+    return Math.max(0.1, ...this.map.staticObjects.map((o) => o.hitboxRadius));
+  }
+
+  private saveMap() {
+    try {
+      writeFileSync(join(MAP_DIR, `${this.id}.json`), JSON.stringify(this.map, null, 2));
+    } catch (e) {
+      console.error("[map] Failed to save:", e);
+    }
   }
 
   add(id: ClientId, ws: WebSocket) {
@@ -87,13 +110,14 @@ export class Room {
       weapon: "none", dancing: false, joined: false, lastShotAt: 0, reloadingUntil: 0,
       killStreak: 0, onRampage: false,
     });
-    const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick, map: mapConfig };
+    const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick, map: this.map };
     ws.send(JSON.stringify(handshake));
     const objList: ServerMessage = { type: "objectList", objects: Array.from(this.placedObjects.values()) };
     ws.send(JSON.stringify(objList));
   }
 
   remove(id: ClientId) {
+    this.pendingMapChange.delete(id);
     this.clients.delete(id);
     this.states.delete(id);
     this.scores.delete(id);
@@ -105,6 +129,7 @@ export class Room {
   }
 
   handleMessage(id: ClientId, raw: string) {
+    if (this.pendingMapChange.has(id)) return;
     let msg: ClientMessage;
     try { msg = JSON.parse(raw); } catch { return; }
     const client = this.clients.get(id);
@@ -163,8 +188,8 @@ export class Room {
       const state = this.states.get(id);
       if (!state || state.health <= 0) return;
       if (client.weapon !== "pistol") return;
-      if (client.reloadingUntil > now) return;  // already reloading
-      if (state.ammo === MAX_AMMO) return;       // already full
+      if (client.reloadingUntil > now) return;
+      if (state.ammo === MAX_AMMO) return;
 
       client.reloadingUntil = now + RELOAD_MS;
       state.reloading = true;
@@ -233,11 +258,35 @@ export class Room {
       this.saveObjects();
       this.broadcast({ type: "objectDeleted", id: msg.id });
     }
+
+    if (msg.type === "bakeMap") {
+      // Promote all placed objects to static objects
+      const newStatics: StaticObject[] = [
+        ...this.map.staticObjects,
+        ...Array.from(this.placedObjects.values()).map((obj) => ({
+          url: obj.url,
+          x: obj.x,
+          z: obj.z,
+          rotY: obj.rotY,
+          scale: obj.scale,
+          hitboxShape: obj.hitboxShape,
+          hitboxRadius: obj.hitboxRadius,
+        })),
+      ];
+      this.map = { ...this.map, staticObjects: newStatics };
+      this.staticGrid = this.buildGrid();
+      this.maxStaticRadius = this.calcMaxStaticRadius();
+      this.placedObjects.clear();
+      this.saveMap();
+      this.saveObjects();
+      this.broadcast({ type: "mapBaked" });
+      console.log(`[${this.id}] Map baked: ${newStatics.length} static objects`);
+    }
   }
 
   private saveObjects() {
     try {
-      writeFileSync(OBJECTS_FILE, JSON.stringify(Array.from(this.placedObjects.values()), null, 2));
+      writeFileSync(this.objectsFile, JSON.stringify(Array.from(this.placedObjects.values()), null, 2));
     } catch (e) {
       console.error("[objects] Failed to save:", e);
     }
@@ -262,11 +311,10 @@ export class Room {
       state.onRampage = client.onRampage;
 
       if (moving) {
-        state.x = Math.max(-BOUNDS, Math.min(BOUNDS, state.x + client.inputX * PLAYER_SPEED * dt));
-        state.z = Math.max(-BOUNDS, Math.min(BOUNDS, state.z + client.inputZ * PLAYER_SPEED * dt));
+        state.x = Math.max(-this.bounds, Math.min(this.bounds, state.x + client.inputX * PLAYER_SPEED * dt));
+        state.z = Math.max(-this.bounds, Math.min(this.bounds, state.z + client.inputZ * PLAYER_SPEED * dt));
 
-        // Push player out of static colliders
-        for (const col of staticGrid.query(state.x, state.z, PLAYER_RADIUS + MAX_STATIC_RADIUS)) {
+        for (const col of this.staticGrid.query(state.x, state.z, PLAYER_RADIUS + this.maxStaticRadius)) {
           const dx = state.x - col.x;
           const dz = state.z - col.z;
           const dist = Math.sqrt(dx * dx + dz * dz);
@@ -278,7 +326,6 @@ export class Room {
           }
         }
 
-        // Push player out of placed object colliders
         for (const obj of this.placedObjects.values()) {
           const hx = obj.x + (obj.hitboxOffsetX ?? 0);
           const hz = obj.z + (obj.hitboxOffsetZ ?? 0);
@@ -307,6 +354,34 @@ export class Room {
           }
         }
       }
+
+      // Water Y offset
+      state.y = 0;
+      for (const zone of this.map.waterZones) {
+        const halfW = zone.width / 2;
+        const halfH = zone.height / 2;
+        if (
+          state.x >= zone.x - halfW && state.x <= zone.x + halfW &&
+          state.z >= zone.z - halfH && state.z <= zone.z + halfH
+        ) {
+          state.y = -0.5;
+          break;
+        }
+      }
+
+      // Door triggers
+      if (!this.pendingMapChange.has(id)) {
+        for (const door of this.map.doors) {
+          const dx = state.x - door.x;
+          const dz = state.z - door.z;
+          if (dx * dx + dz * dz < door.triggerRadius * door.triggerRadius) {
+            this.pendingMapChange.add(id);
+            client.ws.send(JSON.stringify({ type: "changeMap", targetMapId: door.targetMapId } satisfies ServerMessage));
+            this.remove(id);
+            break;
+          }
+        }
+      }
     }
 
     // Move projectiles and check hits
@@ -320,14 +395,12 @@ export class Room {
       proj.x += proj.dirX * PROJECTILE_SPEED * dt;
       proj.z += proj.dirZ * PROJECTILE_SPEED * dt;
 
-      // Out of bounds
-      if (Math.abs(proj.x) > BOUNDS || Math.abs(proj.z) > BOUNDS) {
+      if (Math.abs(proj.x) > this.bounds || Math.abs(proj.z) > this.bounds) {
         this.projectiles.delete(pid);
         continue;
       }
 
-      // Hit a static collider
-      const hitStatic = staticGrid.query(proj.x, proj.z, PROJECTILE_RADIUS + MAX_STATIC_RADIUS).some((col) => {
+      const hitStatic = this.staticGrid.query(proj.x, proj.z, PROJECTILE_RADIUS + this.maxStaticRadius).some((col) => {
         const dx = proj.x - col.x;
         const dz = proj.z - col.z;
         return dx * dx + dz * dz < (col.radius + PROJECTILE_RADIUS) ** 2;
@@ -337,7 +410,6 @@ export class Room {
         continue;
       }
 
-      // Hit detection against all other players
       for (const [tid, tstate] of this.states) {
         if (tid === proj.ownerId) continue;
         if (tstate.health <= 0) continue;
@@ -356,7 +428,6 @@ export class Room {
           if (tstate.health <= 0) {
             this.broadcast({ type: "died", targetId: tid });
 
-            // Victim score + streak reset
             const victimScore = this.scores.get(tid);
             if (victimScore) victimScore.deaths++;
             const victimClient = this.clients.get(tid);
@@ -367,7 +438,6 @@ export class Room {
             tstate.onRampage = false;
             tstate.maxHealth = MAX_HEALTH;
 
-            // Killer score + streak
             const killerScore = this.scores.get(proj.ownerId);
             if (killerScore) killerScore.kills++;
             if (shooterClient) {
