@@ -7,6 +7,7 @@ import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRe
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon, ScoreEntry, PlacedObject, MapConfig, StaticObject, DoorConfig } from "../server/types";
 import { supabase } from "@/lib/supabase";
+import RAPIER from "@dimforge/rapier3d-compat";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "ws://localhost:3001";
 const LERP_FACTOR = 0.2;
@@ -240,6 +241,8 @@ export default function GameCanvas({ playerName, userId }: Props) {
       entry.hitboxMesh.position.set(entry.data.x + entry.data.hitboxOffsetX, 1, entry.data.z + entry.data.hitboxOffsetZ);
       const col = placedColliders.get(currentSelectedId);
       if (col) { col.x = entry.data.x; col.z = entry.data.z; }
+      removeRapierPlacedBody(currentSelectedId);
+      addRapierPlacedBody(entry.data);
       refreshSelectionBox(entry.root);
     });
 
@@ -295,12 +298,98 @@ export default function GameCanvas({ playerName, userId }: Props) {
     }
 
     // ---- Debug wireframes ----
-    const CLIENT_PLAYER_RADIUS = 0.25;
-    interface ClientCollider { x: number; z: number; radius: number; shape: "cylinder" | "box"; depth?: number }
-    // Populated by applyMap once the server handshake delivers the map config
-    const clientColliders: ClientCollider[] = [];
     let debugVisible = false;
     const debugMeshes: THREE.Mesh[] = [];
+
+    // ---- Rapier client-side prediction ----
+    const RAPIER_PHH = 0.5; // player half-height
+    const RAPIER_PR = 0.25; // player radius
+    const RAPIER_OHH = 0.5; // object half-height
+    let rapierWorld: RAPIER.World | null = null;
+    let rapierPlayerBody: RAPIER.RigidBody | null = null;
+    let rapierPlayerCollider: RAPIER.Collider | null = null;
+    let rapierController: RAPIER.KinematicCharacterController | null = null;
+    const rapierPlacedBodies = new Map<string, RAPIER.RigidBody>();
+    let rapierBounds = 40;
+    let rapierReady = false;
+    let pendingMapForRapier: MapConfig | null = null;
+
+    function buildRapierWorld(map: MapConfig) {
+      if (!rapierReady) { pendingMapForRapier = map; return; }
+      // Clean up old world
+      if (rapierController && rapierWorld) {
+        rapierWorld.removeCharacterController(rapierController);
+        rapierController = null;
+      }
+      rapierPlayerBody = null;
+      rapierPlayerCollider = null;
+      rapierPlacedBodies.clear();
+      rapierBounds = map.bounds;
+      rapierWorld = new RAPIER.World({ x: 0, y: 0, z: 0 });
+      for (const obj of map.staticObjects) {
+        const hh = (obj.hitboxHeight ?? 1.0) / 2;
+        const body = rapierWorld.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(obj.x, 0, obj.z));
+        if (obj.hitboxShape === "cylinder") {
+          rapierWorld.createCollider(RAPIER.ColliderDesc.cylinder(hh, obj.hitboxRadius), body);
+        } else if (obj.hitboxShape === "capsule") {
+          rapierWorld.createCollider(RAPIER.ColliderDesc.capsule(hh, obj.hitboxRadius), body);
+        } else {
+          const hw = obj.hitboxRadius;
+          const hd = obj.hitboxDepth ?? obj.hitboxRadius;
+          rapierWorld.createCollider(RAPIER.ColliderDesc.cuboid(hw, hh, hd), body);
+        }
+      }
+    }
+
+    function addRapierPlacedBody(obj: PlacedObject) {
+      if (!rapierWorld) return;
+      const hx = obj.x + (obj.hitboxOffsetX ?? 0);
+      const hz = obj.z + (obj.hitboxOffsetZ ?? 0);
+      const body = rapierWorld.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(hx, 0, hz));
+      if (obj.hitboxShape === "box") {
+        rapierWorld.createCollider(RAPIER.ColliderDesc.cuboid(obj.hitboxRadius, RAPIER_OHH, obj.hitboxRadius), body);
+      } else {
+        rapierWorld.createCollider(RAPIER.ColliderDesc.cylinder(RAPIER_OHH, obj.hitboxRadius), body);
+      }
+      rapierPlacedBodies.set(obj.id, body);
+    }
+
+    function removeRapierPlacedBody(id: string) {
+      const body = rapierPlacedBodies.get(id);
+      if (body && rapierWorld) {
+        rapierWorld.removeRigidBody(body);
+        rapierPlacedBodies.delete(id);
+      }
+    }
+
+    function addRapierPlayer(x: number, z: number) {
+      if (!rapierWorld || !rapierReady) return;
+      if (rapierController) {
+        rapierWorld.removeCharacterController(rapierController);
+        rapierController = null;
+      }
+      if (rapierPlayerBody) {
+        rapierWorld.removeRigidBody(rapierPlayerBody);
+        rapierPlayerBody = null;
+        rapierPlayerCollider = null;
+      }
+      const ctrl = rapierWorld.createCharacterController(0.01);
+      ctrl.setSlideEnabled(true);
+      ctrl.setApplyImpulsesToDynamicBodies(false);
+      const body = rapierWorld.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(x, 0, z));
+      const col = rapierWorld.createCollider(RAPIER.ColliderDesc.cylinder(RAPIER_PHH, RAPIER_PR), body);
+      rapierController = ctrl;
+      rapierPlayerBody = body;
+      rapierPlayerCollider = col;
+    }
+
+    RAPIER.init().then(() => {
+      rapierReady = true;
+      if (pendingMapForRapier) {
+        buildRapierWorld(pendingMapForRapier);
+        pendingMapForRapier = null;
+      }
+    });
 
     // ---- Input ----
     const keys = { w: false, a: false, s: false, d: false, q: false, e: false };
@@ -718,20 +807,28 @@ export default function GameCanvas({ playerName, userId }: Props) {
         scene.add(doorLabel);
       }
 
-      // Client-side colliders + debug wireframes
+      // Debug wireframes for static colliders
       for (const obj of map.staticObjects) {
-        clientColliders.push({ x: obj.x, z: obj.z, radius: obj.hitboxRadius, shape: obj.hitboxShape, depth: obj.hitboxDepth });
+        const h = obj.hitboxHeight ?? 1.0;
         const depth = obj.hitboxDepth ?? obj.hitboxRadius;
-        const geo = obj.hitboxShape === "box"
-          ? new THREE.BoxGeometry(obj.hitboxRadius * 2, 2, depth * 2)
-          : new THREE.CylinderGeometry(obj.hitboxRadius, obj.hitboxRadius, 2, 16);
-        const mat = new THREE.MeshBasicMaterial({ color: obj.hitboxShape === "box" ? 0xff4400 : 0x00ff88, wireframe: true });
+        let geo: THREE.BufferGeometry;
+        if (obj.hitboxShape === "box") {
+          geo = new THREE.BoxGeometry(obj.hitboxRadius * 2, h, depth * 2);
+        } else if (obj.hitboxShape === "capsule") {
+          geo = new THREE.CapsuleGeometry(obj.hitboxRadius, h, 4, 8);
+        } else {
+          geo = new THREE.CylinderGeometry(obj.hitboxRadius, obj.hitboxRadius, h, 16);
+        }
+        const color = obj.hitboxShape === "box" ? 0xff4400 : obj.hitboxShape === "capsule" ? 0xffaa00 : 0x00ff88;
+        const mat = new THREE.MeshBasicMaterial({ color, wireframe: true });
         const dbMesh = new THREE.Mesh(geo, mat);
-        dbMesh.position.set(obj.x, 1, obj.z);
+        dbMesh.position.set(obj.x, h / 2, obj.z);
         dbMesh.visible = debugVisible;
         scene.add(dbMesh);
         debugMeshes.push(dbMesh);
       }
+
+      buildRapierWorld(map);
     }
 
     // ---- Placed object helpers ----
@@ -826,6 +923,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
       placedObjects.set(data.id, { data, root, hitboxMesh });
       root.traverse((child) => placedMeshToId.set(child, data.id));
       placedColliders.set(data.id, { x: data.x, z: data.z, shape: data.hitboxShape, radius: data.hitboxRadius, offsetX: data.hitboxOffsetX, offsetZ: data.hitboxOffsetZ });
+      addRapierPlacedBody(data);
     }
 
     function removePlacedObject(id: string) {
@@ -837,6 +935,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
       entry.hitboxMesh.geometry.dispose();
       placedObjects.delete(id);
       placedColliders.delete(id);
+      removeRapierPlacedBody(id);
       if (currentSelectedId === id) selectObject(null);
     }
 
@@ -903,6 +1002,8 @@ export default function GameCanvas({ playerName, userId }: Props) {
       entry.root.scale.setScalar(scale);
       entry.root.rotation.y = rotY;
       placedColliders.set(id, { x: entry.data.x, z: entry.data.z, shape: hitboxShape, radius: hitboxRadius, offsetX: hitboxOffsetX, offsetZ: hitboxOffsetZ });
+      removeRapierPlacedBody(id);
+      addRapierPlacedBody(entry.data);
       updateHitboxMesh(entry);
       if (currentSelectedId === id) { refreshSelectionBox(entry.root); if (entry.hitboxMesh) entry.hitboxMesh.visible = true; }
       const ws = wsRef.current;
@@ -919,6 +1020,8 @@ export default function GameCanvas({ playerName, userId }: Props) {
       entry.hitboxMesh.position.set(entry.data.x + offsetX, 1, entry.data.z + offsetZ);
       const col = placedColliders.get(id);
       if (col) { col.offsetX = offsetX; col.offsetZ = offsetZ; }
+      removeRapierPlacedBody(id);
+      addRapierPlacedBody(entry.data);
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "moveObject", id, x: entry.data.x, z: entry.data.z, rotY: entry.data.rotY, scale: entry.data.scale, hitboxShape: entry.data.hitboxShape, hitboxRadius: entry.data.hitboxRadius, hitboxOffsetX: offsetX, hitboxOffsetZ: offsetZ } satisfies ClientMessage));
@@ -1159,6 +1262,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
           seen.add(p.id);
           if (p.id === myId) {
             serverPos.set(p.x, p.y, p.z);
+            if (!rapierPlayerBody) addRapierPlayer(p.x, p.z);
             setHealth(p.health);
             setMaxHealth(p.maxHealth);
             setOnRampage(p.onRampage);
@@ -1205,6 +1309,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
             setMaxHealth(MAX_HEALTH);
             if (characterRoot) characterRoot.position.set(0, 0, 0);
             serverPos.set(0, 0, 0);
+            if (rapierPlayerBody) rapierPlayerBody.setNextKinematicTranslation({ x: 0, y: 0, z: 0 });
           }, 3000);
         } else {
           const remote = remotePlayers.get(msg.targetId);
@@ -1232,6 +1337,8 @@ export default function GameCanvas({ playerName, userId }: Props) {
           entry.data = msg.object;
           applyPlacedTransform(msg.object, entry.root);
           placedColliders.set(msg.object.id, { x: msg.object.x, z: msg.object.z, shape: msg.object.hitboxShape, radius: msg.object.hitboxRadius, offsetX: msg.object.hitboxOffsetX ?? 0, offsetZ: msg.object.hitboxOffsetZ ?? 0 });
+          removeRapierPlacedBody(msg.object.id);
+          addRapierPlacedBody(msg.object);
           updateHitboxMesh(entry);
           if (currentSelectedId === msg.object.id) {
             refreshSelectionBox(entry.root);
@@ -1340,68 +1447,37 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
       const SPEED = 4;
       if (characterRoot) {
-        if (input.lengthSq() > 0) {
-          characterRoot.position.x += input.x * SPEED * dt;
-          characterRoot.position.z += input.z * SPEED * dt;
+        if (rapierController && rapierPlayerBody && rapierPlayerCollider && rapierWorld) {
+          // Sync Rapier body to current Three.js position so server corrections carry over
+          const rp = rapierPlayerBody.translation();
+          if (Math.abs(rp.x - characterRoot.position.x) > 0.001 || Math.abs(rp.z - characterRoot.position.z) > 0.001) {
+            rapierPlayerBody.setNextKinematicTranslation({ x: characterRoot.position.x, y: 0, z: characterRoot.position.z });
+          }
+          // Compute collision-aware movement
+          const desired = { x: input.x * SPEED * dt, y: 0, z: input.z * SPEED * dt };
+          rapierController.computeColliderMovement(rapierPlayerCollider, desired);
+          const mv = rapierController.computedMovement();
+          const cp = rapierPlayerBody.translation();
+          rapierPlayerBody.setNextKinematicTranslation({
+            x: Math.max(-rapierBounds, Math.min(rapierBounds, cp.x + mv.x)),
+            y: 0,
+            z: Math.max(-rapierBounds, Math.min(rapierBounds, cp.z + mv.z)),
+          });
+          rapierWorld.step();
+          const np = rapierPlayerBody.translation();
+          characterRoot.position.x = np.x;
+          characterRoot.position.z = np.z;
+        } else {
+          // Fallback before Rapier is ready: simple movement
+          if (input.lengthSq() > 0) {
+            characterRoot.position.x += input.x * SPEED * dt;
+            characterRoot.position.z += input.z * SPEED * dt;
+          }
         }
+        // Server correction (lerp toward authoritative position; Y handles water depth)
         characterRoot.position.x += (serverPos.x - characterRoot.position.x) * 0.1;
         characterRoot.position.y += (serverPos.y - characterRoot.position.y) * 0.1;
         characterRoot.position.z += (serverPos.z - characterRoot.position.z) * 0.1;
-
-        // Client-side collision (mirrors server) so prediction doesn't walk through objects
-        for (const col of clientColliders) {
-          if (col.shape === "box") {
-            const hw = col.radius;
-            const hd = col.depth ?? col.radius;
-            const closestX = Math.max(col.x - hw, Math.min(col.x + hw, characterRoot.position.x));
-            const closestZ = Math.max(col.z - hd, Math.min(col.z + hd, characterRoot.position.z));
-            const dx = characterRoot.position.x - closestX;
-            const dz = characterRoot.position.z - closestZ;
-            const dist = Math.sqrt(dx * dx + dz * dz);
-            if (dist < CLIENT_PLAYER_RADIUS && dist > 0) {
-              const push = (CLIENT_PLAYER_RADIUS - dist) / dist;
-              characterRoot.position.x += dx * push;
-              characterRoot.position.z += dz * push;
-            }
-          } else {
-            const dx = characterRoot.position.x - col.x;
-            const dz = characterRoot.position.z - col.z;
-            const dist = Math.sqrt(dx * dx + dz * dz);
-            const minDist = col.radius + CLIENT_PLAYER_RADIUS;
-            if (dist < minDist && dist > 0) {
-              const push = (minDist - dist) / dist;
-              characterRoot.position.x += dx * push;
-              characterRoot.position.z += dz * push;
-            }
-          }
-        }
-        for (const col of placedColliders.values()) {
-          const hx = col.x + col.offsetX;
-          const hz = col.z + col.offsetZ;
-          if (col.shape === "box") {
-            const hw = col.radius;
-            const closestX = Math.max(hx - hw, Math.min(hx + hw, characterRoot.position.x));
-            const closestZ = Math.max(hz - hw, Math.min(hz + hw, characterRoot.position.z));
-            const dx = characterRoot.position.x - closestX;
-            const dz = characterRoot.position.z - closestZ;
-            const dist = Math.sqrt(dx * dx + dz * dz);
-            if (dist < CLIENT_PLAYER_RADIUS && dist > 0) {
-              const push = (CLIENT_PLAYER_RADIUS - dist) / dist;
-              characterRoot.position.x += dx * push;
-              characterRoot.position.z += dz * push;
-            }
-          } else {
-            const dx = characterRoot.position.x - hx;
-            const dz = characterRoot.position.z - hz;
-            const dist = Math.sqrt(dx * dx + dz * dz);
-            const minDist = col.radius + CLIENT_PLAYER_RADIUS;
-            if (dist < minDist && dist > 0) {
-              const push = (minDist - dist) / dist;
-              characterRoot.position.x += dx * push;
-              characterRoot.position.z += dz * push;
-            }
-          }
-        }
       }
 
       // Sync inactive local model position so the swap is seamless
@@ -1579,6 +1655,8 @@ export default function GameCanvas({ playerName, userId }: Props) {
       cancelAnimationFrame(rafId);
       ws.close();
       wsRef.current = null;
+      if (rapierController && rapierWorld) rapierWorld.removeCharacterController(rapierController);
+      rapierWorld = null;
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("mousemove", onMouseMove);
@@ -1625,12 +1703,12 @@ export default function GameCanvas({ playerName, userId }: Props) {
     setChatInput("");
 
     if (text === "/home") {
-      setChatMessages((prev) => [...prev, { id: Date.now().toString(), from: "System", text: "Travelling home...", ts: Date.now() }]);
+      setChatMessages((prev) => [...prev, { fromName: "System", text: "Travelling home...", id: ++chatIdRef.current }]);
       setCurrentMapId(`home_${userId}`);
       return;
     }
     if (text === "/hub") {
-      setChatMessages((prev) => [...prev, { id: Date.now().toString(), from: "System", text: "Returning to the hub...", ts: Date.now() }]);
+      setChatMessages((prev) => [...prev, { fromName: "System", text: "Returning to the hub...", id: ++chatIdRef.current }]);
       setCurrentMapId("forest");
       return;
     }

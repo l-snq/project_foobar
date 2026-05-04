@@ -2,23 +2,15 @@ import { WebSocketServer } from "ws";
 import { randomUUID } from "crypto";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
+import RAPIER from "@dimforge/rapier3d-compat";
 import { Room, MAP_DIR } from "./Room";
 import { loadHomeData, insertHome } from "./db";
 import type { MapConfig } from "./types";
 
 const PORT = Number(process.env.PORT ?? 3001);
 
-const wss = new WebSocketServer({ port: PORT });
-
-// Pre-load all static map rooms from disk
-const mapIds = readdirSync(MAP_DIR)
-  .filter((f) => f.endsWith(".json") && !f.endsWith(".placed.json"))
-  .map((f) => f.replace(".json", ""));
-
-const rooms = new Map<string, Room>(mapIds.map((id) => [id, new Room(id)]));
-console.log(`[server] Loaded maps: ${mapIds.join(", ")}`);
-
-// Home rooms are created on demand and cached here after first load
+// Initialized once in main() before any Room is constructed
+let rooms: Map<string, Room>;
 const pendingHomeRooms = new Map<string, Promise<Room>>();
 
 async function getOrCreateHomeRoom(userId: string): Promise<Room> {
@@ -50,43 +42,65 @@ async function getOrCreateHomeRoom(userId: string): Promise<Room> {
   return promise;
 }
 
-wss.on("connection", async (ws, req) => {
-  const params = new URLSearchParams(req.url?.split("?")[1] ?? "");
-  const mapId = params.get("map") ?? "forest";
+async function main() {
+  // Initialize RAPIER WASM before constructing any Room
+  const wasmBuf = readFileSync(
+    join(process.cwd(), "node_modules/@dimforge/rapier3d-compat/rapier_wasm3d_bg.wasm"),
+  );
+  await (RAPIER as unknown as { init(buf: Buffer): Promise<void> }).init(wasmBuf);
+  console.log("[server] Rapier WASM initialized");
 
-  // Buffer any messages that arrive while we load a home room asynchronously
-  const messageBuffer: string[] = [];
-  const bufferMsg = (data: Buffer) => messageBuffer.push(data.toString());
-  ws.on("message", bufferMsg);
+  // Pre-load all static map rooms from disk (exclude templates and home instances)
+  const mapIds = readdirSync(MAP_DIR)
+    .filter((f) => f.endsWith(".json") && !f.endsWith(".placed.json"))
+    .map((f) => f.replace(".json", ""))
+    .filter((id) => id !== "home_template" && !id.startsWith("home_"));
 
-  let room: Room;
-  if (mapId.startsWith("home_")) {
-    const userId = mapId.replace("home_", "");
-    try {
-      room = await getOrCreateHomeRoom(userId);
-    } catch (e) {
-      console.error(`[home] Failed to load room for ${mapId}:`, e);
-      ws.close();
-      return;
+  rooms = new Map(mapIds.map((id) => [id, new Room(id)]));
+  console.log(`[server] Loaded maps: ${mapIds.join(", ")}`);
+
+  const wss = new WebSocketServer({ port: PORT });
+
+  wss.on("connection", async (ws, req) => {
+    const params = new URLSearchParams(req.url?.split("?")[1] ?? "");
+    const mapId = params.get("map") ?? "forest";
+
+    // Buffer any messages that arrive while we load a home room asynchronously
+    const messageBuffer: string[] = [];
+    const bufferMsg = (data: Buffer) => messageBuffer.push(data.toString());
+    ws.on("message", bufferMsg);
+
+    let room: Room;
+    if (mapId.startsWith("home_")) {
+      const userId = mapId.replace("home_", "");
+      try {
+        room = await getOrCreateHomeRoom(userId);
+      } catch (e) {
+        console.error(`[home] Failed to load room for ${mapId}:`, e);
+        ws.close();
+        return;
+      }
+    } else {
+      room = rooms.get(mapId) ?? rooms.get("forest")!;
     }
-  } else {
-    room = rooms.get(mapId) ?? rooms.get("forest")!;
-  }
 
-  ws.removeListener("message", bufferMsg);
+    ws.removeListener("message", bufferMsg);
 
-  const id = randomUUID();
-  room.add(id, ws);
+    const id = randomUUID();
+    room.add(id, ws);
 
-  // Replay any buffered messages (e.g. join sent before room was ready)
-  for (const msg of messageBuffer) room.handleMessage(id, msg);
+    // Replay any buffered messages (e.g. join sent before room was ready)
+    for (const msg of messageBuffer) room.handleMessage(id, msg);
 
-  ws.on("message", (data) => room.handleMessage(id, data.toString()));
-  ws.on("close", () => room.remove(id));
-  ws.on("error", (err) => {
-    console.error(`[${id}] ws error:`, err.message);
-    room.remove(id);
+    ws.on("message", (data) => room.handleMessage(id, data.toString()));
+    ws.on("close", () => room.remove(id));
+    ws.on("error", (err) => {
+      console.error(`[${id}] ws error:`, err.message);
+      room.remove(id);
+    });
   });
-});
 
-console.log(`Game server listening on ws://localhost:${PORT}`);
+  console.log(`Game server listening on ws://localhost:${PORT}`);
+}
+
+main().catch((err) => { console.error("[server] Fatal:", err); process.exit(1); });

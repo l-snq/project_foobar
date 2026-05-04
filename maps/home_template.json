@@ -6,12 +6,12 @@
   "hideGround": true,
   "environment": {
     "sky": {
-      "top": "#d4e8f0",
-      "mid": "#e8f4f8",
-      "horizon": "#f5f0e8"
+      "top": "#0a3d8f",
+      "mid": "#3b9fef",
+      "horizon": "#d4eeff"
     },
     "fog": {
-      "color": "#f5f0e8",
+      "color": "#d4eeff",
       "near": 20,
       "far": 40
     },
@@ -29,7 +29,7 @@
     "groundColor": "#c8b89a"
   },
   "spawnPoints": [
-    { "x": 0, "z": 1.5 }
+    { "x": 0, "z": 1.0 }
   ],
   "doors": [
     {
@@ -60,7 +60,8 @@
       "rotY": 0,
       "hitboxShape": "box",
       "hitboxRadius": 2.5,
-      "hitboxDepth": 0.15
+      "hitboxDepth": 0.15,
+      "hitboxHeight": 4.0
     },
     {
       "url": "",
@@ -70,7 +71,8 @@
       "rotY": 0,
       "hitboxShape": "box",
       "hitboxRadius": 0.15,
-      "hitboxDepth": 2.5
+      "hitboxDepth": 2.5,
+      "hitboxHeight": 4.0
     },
     {
       "url": "",
@@ -80,7 +82,30 @@
       "rotY": 0,
       "hitboxShape": "box",
       "hitboxRadius": 0.15,
-      "hitboxDepth": 2.5
+      "hitboxDepth": 2.5,
+      "hitboxHeight": 4.0
+    },
+    {
+      "url": "",
+      "collisionOnly": true,
+      "x": -1.6,
+      "z": 2.5,
+      "rotY": 0,
+      "hitboxShape": "box",
+      "hitboxRadius": 0.85,
+      "hitboxDepth": 0.15,
+      "hitboxHeight": 4.0
+    },
+    {
+      "url": "",
+      "collisionOnly": true,
+      "x": 1.6,
+      "z": 2.5,
+      "rotY": 0,
+      "hitboxShape": "box",
+      "hitboxRadius": 0.85,
+      "hitboxDepth": 0.15,
+      "hitboxHeight": 4.0
     }
   ]
 }

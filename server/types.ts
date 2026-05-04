@@ -8,9 +8,10 @@ export interface StaticObject {
   z: number;
   rotY: number;
   scale?: number;
-  hitboxShape: "cylinder" | "box";
+  hitboxShape: "cylinder" | "box" | "capsule";
   hitboxRadius: number;
   hitboxDepth?: number;   // Z half-extent for box; defaults to hitboxRadius (square)
+  hitboxHeight?: number;  // full collider height; defaults to 1.0
   collisionOnly?: boolean; // if true, hitbox is registered but no GLTF is rendered
 }
 
