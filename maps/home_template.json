@@ -1,0 +1,86 @@
+{
+  "id": "home_template",
+  "name": "Home",
+  "bounds": 2.3,
+  "groundSize": 5,
+  "hideGround": true,
+  "environment": {
+    "sky": {
+      "top": "#d4e8f0",
+      "mid": "#e8f4f8",
+      "horizon": "#f5f0e8"
+    },
+    "fog": {
+      "color": "#f5f0e8",
+      "near": 20,
+      "far": 40
+    },
+    "sun": {
+      "x": 3,
+      "y": 6,
+      "z": 2,
+      "color": "#fff8e8",
+      "intensity": 1.0
+    },
+    "ambientLight": {
+      "color": "#d8eef5",
+      "intensity": 0.9
+    },
+    "groundColor": "#c8b89a"
+  },
+  "spawnPoints": [
+    { "x": 0, "z": 1.5 }
+  ],
+  "doors": [
+    {
+      "x": 0,
+      "z": 2.3,
+      "rotY": 0,
+      "triggerRadius": 0.8,
+      "targetMapId": "forest",
+      "label": "Leave Home",
+      "requiredRole": null
+    }
+  ],
+  "waterZones": [],
+  "staticObjects": [
+    {
+      "url": "/house_one.gltf",
+      "x": 0,
+      "z": 0,
+      "rotY": 0,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 0.1
+    },
+    {
+      "url": "",
+      "collisionOnly": true,
+      "x": 0,
+      "z": -2.5,
+      "rotY": 0,
+      "hitboxShape": "box",
+      "hitboxRadius": 2.5,
+      "hitboxDepth": 0.15
+    },
+    {
+      "url": "",
+      "collisionOnly": true,
+      "x": -2.5,
+      "z": 0,
+      "rotY": 0,
+      "hitboxShape": "box",
+      "hitboxRadius": 0.15,
+      "hitboxDepth": 2.5
+    },
+    {
+      "url": "",
+      "collisionOnly": true,
+      "x": 2.5,
+      "z": 0,
+      "rotY": 0,
+      "hitboxShape": "box",
+      "hitboxRadius": 0.15,
+      "hitboxDepth": 2.5
+    }
+  ]
+}

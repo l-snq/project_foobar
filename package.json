@@ -4,11 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:server": "tsx watch server/index.ts",
+    "dev:server": "tsx watch --env-file .env.local server/index.ts",
     "build": "next build",
     "build:server": "tsc -p server/tsconfig.json",
     "start": "next start",
-    "start:server": "node dist/server/index.js",
+    "start:server": "node --env-file .env.local dist/server/index.js",
     "lint": "eslint"
   },
   "dependencies": {

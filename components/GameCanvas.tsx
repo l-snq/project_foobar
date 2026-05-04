@@ -6,6 +6,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon, ScoreEntry, PlacedObject, MapConfig, StaticObject, DoorConfig } from "../server/types";
+import { supabase } from "@/lib/supabase";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "ws://localhost:3001";
 const LERP_FACTOR = 0.2;
@@ -91,10 +92,11 @@ export interface ChatMessage {
 
 interface Props {
   playerName: string;
+  userId: string;
 }
 
 // ---------------------------------------------------------------------------
-export default function GameCanvas({ playerName }: Props) {
+export default function GameCanvas({ playerName, userId }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -294,7 +296,7 @@ export default function GameCanvas({ playerName }: Props) {
 
     // ---- Debug wireframes ----
     const CLIENT_PLAYER_RADIUS = 0.25;
-    interface ClientCollider { x: number; z: number; radius: number }
+    interface ClientCollider { x: number; z: number; radius: number; shape: "cylinder" | "box"; depth?: number }
     // Populated by applyMap once the server handshake delivers the map config
     const clientColliders: ClientCollider[] = [];
     let debugVisible = false;
@@ -637,14 +639,17 @@ export default function GameCanvas({ playerName }: Props) {
       mapLights.push(sunLight);
 
       // Ground
-      if (mapGround) scene.remove(mapGround);
-      mapGround = buildGround(map.groundSize, parseInt(map.environment.groundColor.slice(1), 16));
-      mapGround.traverse((child) => { if (child instanceof THREE.Mesh) child.receiveShadow = true; });
-      scene.add(mapGround);
+      if (mapGround) { scene.remove(mapGround); mapGround = null; }
+      if (!map.hideGround) {
+        mapGround = buildGround(map.groundSize, parseInt(map.environment.groundColor.slice(1), 16));
+        mapGround.traverse((child) => { if (child instanceof THREE.Mesh) child.receiveShadow = true; });
+        scene.add(mapGround);
+      }
 
-      // Static objects — group by URL so each GLTF is fetched once
+      // Static objects — group by URL so each GLTF is fetched once (skip collisionOnly)
       const byUrl = new Map<string, StaticObject[]>();
       for (const obj of map.staticObjects) {
+        if (obj.collisionOnly) continue;
         const list = byUrl.get(obj.url) ?? [];
         list.push(obj);
         byUrl.set(obj.url, list);
@@ -715,12 +720,12 @@ export default function GameCanvas({ playerName }: Props) {
 
       // Client-side colliders + debug wireframes
       for (const obj of map.staticObjects) {
-        clientColliders.push({ x: obj.x, z: obj.z, radius: obj.hitboxRadius });
-        const big = obj.hitboxRadius > 0.5;
-        const geo = big
-          ? new THREE.BoxGeometry(obj.hitboxRadius * 2, 2, obj.hitboxRadius * 2)
+        clientColliders.push({ x: obj.x, z: obj.z, radius: obj.hitboxRadius, shape: obj.hitboxShape, depth: obj.hitboxDepth });
+        const depth = obj.hitboxDepth ?? obj.hitboxRadius;
+        const geo = obj.hitboxShape === "box"
+          ? new THREE.BoxGeometry(obj.hitboxRadius * 2, 2, depth * 2)
           : new THREE.CylinderGeometry(obj.hitboxRadius, obj.hitboxRadius, 2, 16);
-        const mat = new THREE.MeshBasicMaterial({ color: big ? 0xff4400 : 0x00ff88, wireframe: true });
+        const mat = new THREE.MeshBasicMaterial({ color: obj.hitboxShape === "box" ? 0xff4400 : 0x00ff88, wireframe: true });
         const dbMesh = new THREE.Mesh(geo, mat);
         dbMesh.position.set(obj.x, 1, obj.z);
         dbMesh.visible = debugVisible;
@@ -1134,7 +1139,9 @@ export default function GameCanvas({ playerName }: Props) {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "join", name: playerName } satisfies ClientMessage));
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        ws.send(JSON.stringify({ type: "join", name: playerName, userId, token: session?.access_token ?? "" } satisfies ClientMessage));
+      });
     };
 
     ws.onmessage = (event: MessageEvent) => {
@@ -1343,14 +1350,29 @@ export default function GameCanvas({ playerName }: Props) {
 
         // Client-side collision (mirrors server) so prediction doesn't walk through objects
         for (const col of clientColliders) {
-          const dx = characterRoot.position.x - col.x;
-          const dz = characterRoot.position.z - col.z;
-          const dist = Math.sqrt(dx * dx + dz * dz);
-          const minDist = col.radius + CLIENT_PLAYER_RADIUS;
-          if (dist < minDist && dist > 0) {
-            const push = (minDist - dist) / dist;
-            characterRoot.position.x += dx * push;
-            characterRoot.position.z += dz * push;
+          if (col.shape === "box") {
+            const hw = col.radius;
+            const hd = col.depth ?? col.radius;
+            const closestX = Math.max(col.x - hw, Math.min(col.x + hw, characterRoot.position.x));
+            const closestZ = Math.max(col.z - hd, Math.min(col.z + hd, characterRoot.position.z));
+            const dx = characterRoot.position.x - closestX;
+            const dz = characterRoot.position.z - closestZ;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < CLIENT_PLAYER_RADIUS && dist > 0) {
+              const push = (CLIENT_PLAYER_RADIUS - dist) / dist;
+              characterRoot.position.x += dx * push;
+              characterRoot.position.z += dz * push;
+            }
+          } else {
+            const dx = characterRoot.position.x - col.x;
+            const dz = characterRoot.position.z - col.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            const minDist = col.radius + CLIENT_PLAYER_RADIUS;
+            if (dist < minDist && dist > 0) {
+              const push = (minDist - dist) / dist;
+              characterRoot.position.x += dx * push;
+              characterRoot.position.z += dz * push;
+            }
           }
         }
         for (const col of placedColliders.values()) {
@@ -1600,8 +1622,20 @@ export default function GameCanvas({ playerName }: Props) {
   function submitChat() {
     const text = chatInput.trim();
     if (!text) return;
-    sendChat(text);
     setChatInput("");
+
+    if (text === "/home") {
+      setChatMessages((prev) => [...prev, { id: Date.now().toString(), from: "System", text: "Travelling home...", ts: Date.now() }]);
+      setCurrentMapId(`home_${userId}`);
+      return;
+    }
+    if (text === "/hub") {
+      setChatMessages((prev) => [...prev, { id: Date.now().toString(), from: "System", text: "Returning to the hub...", ts: Date.now() }]);
+      setCurrentMapId("forest");
+      return;
+    }
+
+    sendChat(text);
   }
 
   const healthPct = Math.max(0, health / maxHealth);

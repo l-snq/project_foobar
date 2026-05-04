@@ -25,6 +25,7 @@ export default function Home() {
   const [view, setView] = useState<View>("loading");
   const [tab, setTab] = useState<Tab>("signin");
   const [username, setUsername] = useState("");
+  const [userId, setUserId] = useState("");
 
   // Sign-in fields
   const [siEmail, setSiEmail] = useState("");
@@ -49,7 +50,7 @@ export default function Home() {
       if (event === "INITIAL_SESSION") {
         if (session) {
           fetchUsername(session.user.id).then((name) => {
-            if (name) { setUsername(name); setView("game"); }
+            if (name) { setUsername(name); setUserId(session.user.id); setView("game"); }
             else setView("auth");
             resolved = true;
           });
@@ -60,10 +61,11 @@ export default function Home() {
       } else if (event === "SIGNED_IN" && session && resolved) {
         // Only run on explicit sign-in, not the initial session replay
         fetchUsername(session.user.id).then((name) => {
-          if (name) { setUsername(name); setView("game"); }
+          if (name) { setUsername(name); setUserId(session.user.id); setView("game"); }
         });
       } else if (event === "SIGNED_OUT") {
         setUsername("");
+        setUserId("");
         setView("auth");
       }
     });
@@ -138,7 +140,7 @@ export default function Home() {
   if (view === "game") {
     return (
       <main className="w-screen h-screen overflow-hidden bg-black relative">
-        <GameCanvas playerName={username} />
+        <GameCanvas playerName={username} userId={userId} />
         <button
           className="absolute top-4 right-4 px-3 py-1.5 rounded-xl text-xs font-semibold z-50 btn-glass"
           style={{

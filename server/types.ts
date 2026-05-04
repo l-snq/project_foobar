@@ -10,6 +10,8 @@ export interface StaticObject {
   scale?: number;
   hitboxShape: "cylinder" | "box";
   hitboxRadius: number;
+  hitboxDepth?: number;   // Z half-extent for box; defaults to hitboxRadius (square)
+  collisionOnly?: boolean; // if true, hitbox is registered but no GLTF is rendered
 }
 
 export interface DoorConfig {
@@ -42,6 +44,7 @@ export interface MapConfig {
   name: string;
   bounds: number;
   groundSize: number;
+  hideGround?: boolean;
   environment: MapEnvironment;
   spawnPoints: { x: number; z: number }[];
   staticObjects: StaticObject[];
@@ -91,7 +94,7 @@ export interface ProjectileState {
 
 // Client → Server
 export type ClientMessage =
-  | { type: "join"; name: string }
+  | { type: "join"; name: string; userId: string; token: string }
   | { type: "input"; x: number; z: number; rotY: number; weapon: Weapon; emote: string | null }
   | { type: "shoot"; dirX: number; dirZ: number }
   | { type: "reload" }

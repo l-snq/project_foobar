@@ -7,6 +7,7 @@ import type {
   ServerMessage, ClientMessage, Weapon, PlacedObject, MapConfig, StaticObject,
 } from "./types";
 import { SpatialGrid } from "./SpatialGrid";
+import { saveHomePlacedObjects } from "./db";
 
 const TICK_RATE = 20;
 const TICK_MS = 1000 / TICK_RATE;
@@ -33,6 +34,7 @@ interface Client {
   id: ClientId;
   ws: WebSocket;
   name: string;
+  userId: string;
   inputX: number;
   inputZ: number;
   rotY: number;
@@ -56,6 +58,8 @@ export class Room {
   private bounds: number;
   private objectsFile: string;
   private pendingMapChange = new Set<ClientId>();
+  private isHome: boolean;
+  private ownerUserId: string | null;
 
   private clients = new Map<ClientId, Client>();
   private states = new Map<ClientId, PlayerState>();
@@ -65,19 +69,42 @@ export class Room {
   private tick = 0;
   private interval: ReturnType<typeof setInterval> | null = null;
 
-  constructor(readonly id: string) {
-    this.map = JSON.parse(readFileSync(join(MAP_DIR, `${id}.json`), "utf8"));
+  constructor(readonly id: string, mapConfig?: MapConfig, initialPlacedObjects?: PlacedObject[]) {
+    this.isHome = id.startsWith("home_");
+    this.ownerUserId = this.isHome ? id.replace("home_", "") : null;
+
+    if (mapConfig) {
+      this.map = mapConfig;
+    } else {
+      this.map = JSON.parse(readFileSync(join(MAP_DIR, `${id}.json`), "utf8"));
+    }
+
+    // All home rooms: force hideGround and use the hub sky regardless of what's stored in DB
+    if (this.isHome) {
+      this.map = {
+        ...this.map,
+        hideGround: true,
+        environment: {
+          ...this.map.environment,
+          sky: { top: "#0a3d8f", mid: "#3b9fef", horizon: "#d4eeff" },
+        },
+      };
+    }
+
     this.bounds = this.map.bounds;
     this.objectsFile = join(MAP_DIR, `${id}.placed.json`);
-
     this.staticGrid = this.buildGrid();
     this.maxStaticRadius = this.calcMaxStaticRadius();
-
     this.interval = setInterval(() => this.update(), TICK_MS);
-    try {
-      const data = JSON.parse(readFileSync(this.objectsFile, "utf8")) as PlacedObject[];
-      for (const obj of data) this.placedObjects.set(obj.id, obj);
-    } catch { /* file doesn't exist yet, start empty */ }
+
+    if (initialPlacedObjects) {
+      for (const obj of initialPlacedObjects) this.placedObjects.set(obj.id, obj);
+    } else {
+      try {
+        const data = JSON.parse(readFileSync(this.objectsFile, "utf8")) as PlacedObject[];
+        for (const obj of data) this.placedObjects.set(obj.id, obj);
+      } catch { /* file doesn't exist yet, start empty */ }
+    }
   }
 
   private buildGrid(): SpatialGrid {
@@ -105,7 +132,7 @@ export class Room {
 
   add(id: ClientId, ws: WebSocket) {
     this.clients.set(id, {
-      id, ws, name: "Player",
+      id, ws, name: "Player", userId: "",
       inputX: 0, inputZ: 0, rotY: 0,
       weapon: "none", emote: null, joined: false, lastShotAt: 0, reloadingUntil: 0,
       killStreak: 0, onRampage: false,
@@ -138,6 +165,7 @@ export class Room {
     if (msg.type === "join") {
       const name = msg.name.trim().slice(0, 24) || "Player";
       client.name = name;
+      client.userId = msg.userId ?? "";
       client.joined = true;
       this.states.set(id, {
         id, name, x: 0, y: 0, z: 0, rotY: 0,
@@ -209,6 +237,7 @@ export class Room {
     }
 
     if (msg.type === "placeObject") {
+      if (this.isHome && client.userId !== this.ownerUserId) return;
       if (
         typeof msg.url !== "string" ||
         !msg.url.startsWith("/uploads/") ||
@@ -236,6 +265,7 @@ export class Room {
     }
 
     if (msg.type === "moveObject") {
+      if (this.isHome && client.userId !== this.ownerUserId) return;
       const obj = this.placedObjects.get(msg.id);
       if (!obj) return;
       if (msg.scale < 0.1 || msg.scale > 10) return;
@@ -253,6 +283,7 @@ export class Room {
     }
 
     if (msg.type === "deleteObject") {
+      if (this.isHome && client.userId !== this.ownerUserId) return;
       if (!this.placedObjects.has(msg.id)) return;
       this.placedObjects.delete(msg.id);
       this.saveObjects();
@@ -285,6 +316,11 @@ export class Room {
   }
 
   private saveObjects() {
+    if (this.isHome && this.ownerUserId) {
+      saveHomePlacedObjects(this.ownerUserId, Array.from(this.placedObjects.values()))
+        .catch((e) => console.error(`[home:${this.ownerUserId}] Failed to save objects:`, e));
+      return;
+    }
     try {
       writeFileSync(this.objectsFile, JSON.stringify(Array.from(this.placedObjects.values()), null, 2));
     } catch (e) {
@@ -321,6 +357,22 @@ export class Room {
           const minDist = col.radius + PLAYER_RADIUS;
           if (dist < minDist && dist > 0) {
             const push = (minDist - dist) / dist;
+            state.x += dx * push;
+            state.z += dz * push;
+          }
+        }
+
+        for (const obj of this.map.staticObjects) {
+          if (obj.hitboxShape !== "box") continue;
+          const hw = obj.hitboxRadius;
+          const hd = obj.hitboxDepth ?? obj.hitboxRadius;
+          const closestX = Math.max(obj.x - hw, Math.min(obj.x + hw, state.x));
+          const closestZ = Math.max(obj.z - hd, Math.min(obj.z + hd, state.z));
+          const dx = state.x - closestX;
+          const dz = state.z - closestZ;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          if (dist < PLAYER_RADIUS && dist > 0) {
+            const push = (PLAYER_RADIUS - dist) / dist;
             state.x += dx * push;
             state.z += dz * push;
           }
