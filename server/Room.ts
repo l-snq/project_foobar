@@ -8,9 +8,11 @@ import type {
   ServerMessage, ClientMessage, Weapon, PlacedObject, MapConfig, StaticObject,
 } from "./types";
 import { saveHomePlacedObjects } from "./db";
+import { RoomPhysics, PLAYER_RADIUS } from "./physics";
 
 const TICK_RATE = 20;
 const TICK_MS = 1000 / TICK_RATE;
+const DOOR_GRACE_TICKS = 40; // ~2 s of protection after joining
 const PLAYER_SPEED = 4;
 const MAX_CHAT_LEN = 200;
 const MAX_HEALTH = 100;
@@ -18,8 +20,6 @@ const MAX_HEALTH = 100;
 const PROJECTILE_SPEED = 20;
 const PROJECTILE_LIFETIME = 2;
 const PROJECTILE_RADIUS = 0.25;
-const PLAYER_RADIUS = 0.25;
-const PLAYER_HALF_HEIGHT = 0.5;
 const PISTOL_DAMAGE = 25;
 const FIRE_RATE_MS = 400;
 const MAX_AMMO = 8;
@@ -45,6 +45,7 @@ interface Client {
   reloadingUntil: number;
   killStreak: number;
   onRampage: boolean;
+  joinedAtTick: number;
 }
 
 interface LiveProjectile extends ProjectileState {
@@ -53,7 +54,7 @@ interface LiveProjectile extends ProjectileState {
 
 export class Room {
   private map: MapConfig;
-  private world: RAPIER.World;
+  private physics: RoomPhysics;
   private bounds: number;
   private objectsFile: string;
   private pendingMapChange = new Set<ClientId>();
@@ -67,13 +68,6 @@ export class Room {
   private placedObjects = new Map<string, PlacedObject>();
   private tick = 0;
   private interval: ReturnType<typeof setInterval> | null = null;
-
-  // Rapier handles per player
-  private playerBodies = new Map<ClientId, RAPIER.RigidBody>();
-  private playerColliders = new Map<ClientId, RAPIER.Collider>();
-  private controllers = new Map<ClientId, RAPIER.KinematicCharacterController>();
-  // Rapier handles per placed object
-  private placedBodies = new Map<string, RAPIER.RigidBody>();
 
   constructor(readonly id: string, mapConfig?: MapConfig, initialPlacedObjects?: PlacedObject[]) {
     this.isHome = id.startsWith("home_");
@@ -89,6 +83,7 @@ export class Room {
       this.map = {
         ...this.map,
         hideGround: true,
+        spawnPoints: [{ x: 0, z: -1.0 }],
         environment: {
           ...this.map.environment,
           sky: { top: "#0a3d8f", mid: "#3b9fef", horizon: "#d4eeff" },
@@ -98,133 +93,22 @@ export class Room {
 
     this.bounds = this.map.bounds;
     this.objectsFile = join(MAP_DIR, `${id}.placed.json`);
-    this.world = this.buildPhysicsWorld();
+    this.physics = new RoomPhysics(this.map);
     this.interval = setInterval(() => this.update(), TICK_MS);
 
     if (initialPlacedObjects) {
       for (const obj of initialPlacedObjects) {
         this.placedObjects.set(obj.id, obj);
-        this.addPlacedBody(obj);
+        this.physics.addPlacedBody(obj);
       }
     } else {
       try {
         const data = JSON.parse(readFileSync(this.objectsFile, "utf8")) as PlacedObject[];
         for (const obj of data) {
           this.placedObjects.set(obj.id, obj);
-          this.addPlacedBody(obj);
+          this.physics.addPlacedBody(obj);
         }
       } catch { /* start empty */ }
-    }
-  }
-
-  // ---- Physics world ----
-
-  private buildPhysicsWorld(): RAPIER.World {
-    const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
-    for (const obj of this.map.staticObjects) {
-      this.addStaticCollider(world, obj);
-    }
-    return world;
-  }
-
-  private addStaticCollider(world: RAPIER.World, obj: StaticObject) {
-    const hh = (obj.hitboxHeight ?? 1.0) / 2;
-    const body = world.createRigidBody(
-      RAPIER.RigidBodyDesc.fixed().setTranslation(obj.x, 0, obj.z),
-    );
-    if (obj.hitboxShape === "cylinder") {
-      world.createCollider(RAPIER.ColliderDesc.cylinder(hh, obj.hitboxRadius), body);
-    } else if (obj.hitboxShape === "capsule") {
-      world.createCollider(RAPIER.ColliderDesc.capsule(hh, obj.hitboxRadius), body);
-    } else {
-      const hw = obj.hitboxRadius;
-      const hd = obj.hitboxDepth ?? obj.hitboxRadius;
-      world.createCollider(RAPIER.ColliderDesc.cuboid(hw, hh, hd), body);
-    }
-  }
-
-  private addPlacedBody(obj: PlacedObject) {
-    const hx = obj.x + (obj.hitboxOffsetX ?? 0);
-    const hz = obj.z + (obj.hitboxOffsetZ ?? 0);
-    const body = this.world.createRigidBody(
-      RAPIER.RigidBodyDesc.fixed().setTranslation(hx, 0, hz),
-    );
-    if (obj.hitboxShape === "box") {
-      this.world.createCollider(
-        RAPIER.ColliderDesc.cuboid(obj.hitboxRadius, PLAYER_HALF_HEIGHT, obj.hitboxRadius),
-        body,
-      );
-    } else {
-      this.world.createCollider(
-        RAPIER.ColliderDesc.cylinder(PLAYER_HALF_HEIGHT, obj.hitboxRadius),
-        body,
-      );
-    }
-    this.placedBodies.set(obj.id, body);
-  }
-
-  private removePlacedBody(objectId: string) {
-    const body = this.placedBodies.get(objectId);
-    if (body) {
-      this.world.removeRigidBody(body);
-      this.placedBodies.delete(objectId);
-    }
-  }
-
-  private addPlayerPhysics(id: ClientId, x: number, z: number) {
-    const controller = this.world.createCharacterController(0.01);
-    controller.setSlideEnabled(true);
-    controller.setApplyImpulsesToDynamicBodies(false);
-
-    const body = this.world.createRigidBody(
-      RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(x, 0, z),
-    );
-    const collider = this.world.createCollider(
-      RAPIER.ColliderDesc.cylinder(PLAYER_HALF_HEIGHT, PLAYER_RADIUS),
-      body,
-    );
-    this.playerBodies.set(id, body);
-    this.playerColliders.set(id, collider);
-    this.controllers.set(id, controller);
-  }
-
-  private removePlayerPhysics(id: ClientId) {
-    const controller = this.controllers.get(id);
-    if (controller) {
-      this.world.removeCharacterController(controller);
-      this.controllers.delete(id);
-    }
-    const body = this.playerBodies.get(id);
-    if (body) {
-      this.world.removeRigidBody(body);
-      this.playerBodies.delete(id);
-      this.playerColliders.delete(id);
-    }
-  }
-
-  private rebuildPhysicsWorld() {
-    // Preserve player positions before destroying world
-    const playerPositions = new Map<ClientId, { x: number; z: number }>();
-    for (const [id, body] of this.playerBodies) {
-      const pos = body.translation();
-      playerPositions.set(id, { x: pos.x, z: pos.z });
-    }
-
-    // Controllers must be freed before the world is dropped
-    for (const controller of this.controllers.values()) {
-      this.world.removeCharacterController(controller);
-    }
-    this.controllers.clear();
-    this.playerBodies.clear();
-    this.playerColliders.clear();
-    this.placedBodies.clear();
-
-    this.world = this.buildPhysicsWorld();
-
-    // Re-add player bodies at their previous positions
-    for (const [id] of this.clients) {
-      const pos = playerPositions.get(id) ?? { x: 0, z: 0 };
-      this.addPlayerPhysics(id, pos.x, pos.z);
     }
   }
 
@@ -251,6 +135,19 @@ export class Room {
     }
   }
 
+  private rebuildPhysicsWorld() {
+    const playerPositions = new Map<ClientId, { x: number; z: number }>();
+    for (const [id, body] of this.physics.playerBodies) {
+      const pos = body.translation();
+      playerPositions.set(id, { x: pos.x, z: pos.z });
+    }
+    this.physics.rebuild(this.map, playerPositions);
+    // Re-add placed object bodies after rebuild
+    for (const obj of this.placedObjects.values()) {
+      this.physics.addPlacedBody(obj);
+    }
+  }
+
   private spawn(): { x: number; z: number } {
     const pts = this.map.spawnPoints;
     return pts[Math.floor(Math.random() * pts.length)] ?? { x: 0, z: 0 };
@@ -261,7 +158,7 @@ export class Room {
       id, ws, name: "Player", userId: "",
       inputX: 0, inputZ: 0, rotY: 0,
       weapon: "none", emote: null, joined: false, lastShotAt: 0, reloadingUntil: 0,
-      killStreak: 0, onRampage: false,
+      killStreak: 0, onRampage: false, joinedAtTick: 0,
     });
     const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick, map: this.map };
     ws.send(JSON.stringify(handshake));
@@ -274,7 +171,7 @@ export class Room {
     this.clients.delete(id);
     this.states.delete(id);
     this.scores.delete(id);
-    this.removePlayerPhysics(id);
+    this.physics.removePlayer(id);
     for (const [pid, p] of this.projectiles) {
       if (p.ownerId === id) this.projectiles.delete(pid);
     }
@@ -293,6 +190,7 @@ export class Room {
       client.name = name;
       client.userId = msg.userId ?? "";
       client.joined = true;
+      client.joinedAtTick = this.tick;
       const spawn = this.spawn();
       this.states.set(id, {
         id, name,
@@ -302,7 +200,7 @@ export class Room {
         emote: null, ammo: MAX_AMMO, reloading: false, onRampage: false,
       });
       this.scores.set(id, { id, name, kills: 0, deaths: 0 });
-      this.addPlayerPhysics(id, spawn.x, spawn.z);
+      this.physics.addPlayer(id, spawn.x, spawn.z);
       return;
     }
 
@@ -381,7 +279,7 @@ export class Room {
         hitboxOffsetZ: msg.hitboxOffsetZ ?? 0,
       };
       this.placedObjects.set(obj.id, obj);
-      this.addPlacedBody(obj);
+      this.physics.addPlacedBody(obj);
       this.saveObjects();
       this.broadcast({ type: "objectPlaced", object: obj });
     }
@@ -392,7 +290,7 @@ export class Room {
       if (!obj) return;
       if (msg.scale < 0.1 || msg.scale > 10) return;
       if (Math.abs(msg.x) > 40 || Math.abs(msg.z) > 40) return;
-      this.removePlacedBody(obj.id);
+      this.physics.removePlacedBody(obj.id);
       obj.x = msg.x;
       obj.z = msg.z;
       obj.rotY = msg.rotY;
@@ -401,7 +299,7 @@ export class Room {
       obj.hitboxRadius = Math.max(0.1, Math.min(10, msg.hitboxRadius ?? obj.hitboxRadius));
       obj.hitboxOffsetX = msg.hitboxOffsetX ?? 0;
       obj.hitboxOffsetZ = msg.hitboxOffsetZ ?? 0;
-      this.addPlacedBody(obj);
+      this.physics.addPlacedBody(obj);
       this.saveObjects();
       this.broadcast({ type: "objectMoved", object: obj });
     }
@@ -409,7 +307,7 @@ export class Room {
     if (msg.type === "deleteObject") {
       if (this.isHome && client.userId !== this.ownerUserId) return;
       if (!this.placedObjects.has(msg.id)) return;
-      this.removePlacedBody(msg.id);
+      this.physics.removePlacedBody(msg.id);
       this.placedObjects.delete(msg.id);
       this.saveObjects();
       this.broadcast({ type: "objectDeleted", id: msg.id });
@@ -455,9 +353,9 @@ export class Room {
       state.reloading = client.reloadingUntil > Date.now();
       state.onRampage = client.onRampage;
 
-      const body = this.playerBodies.get(id);
-      const collider = this.playerColliders.get(id);
-      const controller = this.controllers.get(id);
+      const body = this.physics.playerBodies.get(id);
+      const collider = this.physics.playerColliders.get(id);
+      const controller = this.physics.controllers.get(id);
       if (!body || !collider || !controller) continue;
 
       const desired = {
@@ -476,7 +374,7 @@ export class Room {
     }
 
     // 2. Step physics
-    this.world.step();
+    this.physics.world.step();
 
     // 3. Read back positions, check water + doors
     for (const [id, client] of this.clients) {
@@ -484,7 +382,7 @@ export class Room {
       const state = this.states.get(id)!;
       if (state.health <= 0) continue;
 
-      const body = this.playerBodies.get(id);
+      const body = this.physics.playerBodies.get(id);
       if (body) {
         const pos = body.translation();
         state.x = pos.x;
@@ -506,7 +404,7 @@ export class Room {
       }
 
       // Door triggers
-      if (!this.pendingMapChange.has(id)) {
+      if (!this.pendingMapChange.has(id) && this.tick - client.joinedAtTick >= DOOR_GRACE_TICKS) {
         for (const door of this.map.doors) {
           const dx = state.x - door.x;
           const dz = state.z - door.z;
@@ -534,7 +432,7 @@ export class Room {
         { x: proj.dirX, y: 0, z: proj.dirZ },
       );
       // EXCLUDE_KINEMATIC so bullets pass through players (handled below)
-      const hit = this.world.castRay(ray, stepDist + PROJECTILE_RADIUS, true, RAPIER.QueryFilterFlags.EXCLUDE_KINEMATIC);
+      const hit = this.physics.world.castRay(ray, stepDist + PROJECTILE_RADIUS, true, RAPIER.QueryFilterFlags.EXCLUDE_KINEMATIC);
       if (hit !== null) {
         this.projectiles.delete(pid);
         continue;
@@ -593,7 +491,7 @@ export class Room {
               s.health = s.maxHealth;
               s.x = respawnPos.x;
               s.z = respawnPos.z;
-              const b = this.playerBodies.get(tid);
+              const b = this.physics.playerBodies.get(tid);
               if (b) b.setNextKinematicTranslation({ x: respawnPos.x, y: 0, z: respawnPos.z });
             }, 3000);
           }
@@ -624,8 +522,6 @@ export class Room {
 
   destroy() {
     if (this.interval) clearInterval(this.interval);
-    for (const controller of this.controllers.values()) {
-      this.world.removeCharacterController(controller);
-    }
+    this.physics.destroy();
   }
 }

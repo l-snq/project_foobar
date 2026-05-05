@@ -29,7 +29,7 @@
     "groundColor": "#c8b89a"
   },
   "spawnPoints": [
-    { "x": 0, "z": 1.0 }
+    { "x": 0, "z": -1.0 }
   ],
   "doors": [
     {
@@ -50,7 +50,7 @@
       "z": 0,
       "rotY": 0,
       "hitboxShape": "cylinder",
-      "hitboxRadius": 0.1
+      "hitboxRadius": 0
     },
     {
       "url": "",
