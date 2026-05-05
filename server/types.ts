@@ -100,6 +100,7 @@ export type ClientMessage =
   | { type: "shoot"; dirX: number; dirZ: number }
   | { type: "reload" }
   | { type: "chat"; text: string }
+  | { type: "requestMapChange"; targetMapId: string }
   | { type: "placeObject"; url: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number }
   | { type: "moveObject"; id: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number }
   | { type: "deleteObject"; id: string }
@@ -126,4 +127,5 @@ export type ServerMessage =
   | { type: "objectMoved"; object: PlacedObject }
   | { type: "objectDeleted"; id: string }
   | { type: "changeMap"; targetMapId: string }
+  | { type: "mapChangeError"; reason: string }
   | { type: "mapBaked" }
