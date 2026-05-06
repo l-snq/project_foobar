@@ -9,9 +9,13 @@ import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon
 import { supabase } from "@/lib/supabase";
 import RAPIER from "@dimforge/rapier3d-compat";
 import GameHUD from "./GameHUD";
+import HUDProfile from "./HUDProfile";
+import StoreOverlay from "./StoreOverlay";
+import InventoryPicker from "./InventoryPicker";
 import { buildGround, makeNameLabel, makeGhost, isOccluded, makeProjectileLine } from "./utils/threeHelpers";
 import { updateLocalPlayer } from "./GameLoopUtils";
 import { Game } from "./GameManager";
+import type { StoreItem } from "../server/types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "ws://localhost:3001";
 const LERP_FACTOR = 0.2;
@@ -90,6 +94,16 @@ export default function GameCanvas({ playerName, userId }: Props) {
   const [selectedObjHitboxRadius, setSelectedObjHitboxRadius] = useState(1);
   const [selectedObjHitboxOffsetX, setSelectedObjHitboxOffsetX] = useState(0);
   const [selectedObjHitboxOffsetZ, setSelectedObjHitboxOffsetZ] = useState(0);
+  const [xp, setXp] = useState(0);
+  const [currency, setCurrency] = useState(0);
+  const [level, setLevel] = useState(1);
+  const [storeOpen, setStoreOpen] = useState(false);
+  const [levelUpMsg, setLevelUpMsg] = useState<string | null>(null);
+  const [inventoryRefreshKey, setInventoryRefreshKey] = useState(0);
+
+  const placementStoreItemIdRef = useRef<string | null>(null);
+  const enterStoreItemPlacementModeRef = useRef<((item: StoreItem) => void) | null>(null);
+
   const chatIdRef = useRef(0);
   const chatInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -334,6 +348,11 @@ export default function GameCanvas({ playerName, userId }: Props) {
         if ((e.target as HTMLElement)?.tagName === "INPUT") return;
         debugVisible = !debugVisible;
         for (const m of debugMeshes) m.visible = debugVisible;
+        return;
+      }
+      if (e.key === "b" || e.key === "B") {
+        if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+        setStoreOpen((v) => !v);
         return;
       }
       if (e.key === "t" || e.key === "T") {
@@ -769,11 +788,14 @@ function applyMap(map: MapConfig, ) {
 
     // ---- Placed object helpers ----
     function loadGltfCached(url: string): Promise<THREE.Group> {
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         if (gltfCache.has(url)) { resolve(gltfCache.get(url)!.clone(true)); return; }
         loader.load(url, (gltf) => {
           gltfCache.set(url, gltf.scene.clone(true));
           resolve(gltf.scene.clone(true));
+        }, undefined, (err) => {
+          console.error(`[gltf] failed to load "${url}":`, err);
+          reject(err);
         });
       });
     }
@@ -899,6 +921,7 @@ function applyMap(map: MapConfig, ) {
     function exitPlacementMode() {
       if (placementGhost) { scene.remove(placementGhost); placementGhost = null; }
       placementUrlRef.current = null;
+      placementStoreItemIdRef.current = null;
       placementPreset = null;
       setInPlacementMode(false);
       renderer.domElement.focus();
@@ -908,23 +931,31 @@ function applyMap(map: MapConfig, ) {
       if (!placementGhost || !placementUrlRef.current) return;
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({
-        type: "placeObject",
-        url: placementUrlRef.current,
+      const storeItemId = placementStoreItemIdRef.current;
+      const shared = {
         x: placementGhost.position.x,
         z: placementGhost.position.z,
-        rotY:            placementGhost.rotation.y,
-        scale:           placementPreset?.scale           ?? 1,
-        hitboxShape:     placementPreset?.hitboxShape     ?? "cylinder",
-        hitboxRadius:    placementPreset?.hitboxRadius    ?? 1.0,
-        hitboxOffsetX:   placementPreset?.hitboxOffsetX   ?? 0,
-        hitboxOffsetZ:   placementPreset?.hitboxOffsetZ   ?? 0,
-      } satisfies ClientMessage));
+        rotY:          placementGhost.rotation.y,
+        scale:         placementPreset?.scale         ?? 1,
+        hitboxShape:   placementPreset?.hitboxShape   ?? "cylinder" as const,
+        hitboxRadius:  placementPreset?.hitboxRadius  ?? 1.0,
+        hitboxOffsetX: placementPreset?.hitboxOffsetX ?? 0,
+        hitboxOffsetZ: placementPreset?.hitboxOffsetZ ?? 0,
+      };
+      if (storeItemId) {
+        ws.send(JSON.stringify({ type: "placeStoreItem", itemId: storeItemId, ...shared } satisfies ClientMessage));
+      } else {
+        ws.send(JSON.stringify({ type: "placeObject", url: placementUrlRef.current, ...shared } satisfies ClientMessage));
+      }
       exitPlacementMode();
     }
 
     enterPlacementModeRef.current = enterPlacementMode;
     exitPlacementModeRef.current = exitPlacementMode;
+    enterStoreItemPlacementModeRef.current = (item: StoreItem) => {
+      placementStoreItemIdRef.current = item.id;
+      enterPlacementMode(item.model_url);
+    };
 
     applyTransformRef.current = (id, scale, rotY, hitboxShape, hitboxRadius, hitboxOffsetX, hitboxOffsetZ) => {
       const entry = placedObjects.get(id);
@@ -1260,11 +1291,11 @@ function applyMap(map: MapConfig, ) {
       }
 
       if (msg.type === "objectList") {
-        for (const obj of msg.objects) addPlacedObject(obj);
+        for (const obj of msg.objects) addPlacedObject(obj).catch((e) => console.error("[objectList] addPlacedObject failed:", e));
       }
 
       if (msg.type === "objectPlaced") {
-        addPlacedObject(msg.object);
+        addPlacedObject(msg.object).catch((e) => console.error("[objectPlaced] addPlacedObject failed:", e));
       }
 
       if (msg.type === "objectMoved") {
@@ -1312,6 +1343,19 @@ function applyMap(map: MapConfig, ) {
 
       if (msg.type === "mapBaked") {
         setMapReloadToken((t) => t + 1);
+      }
+
+      if (msg.type === "profileSync") {
+        setXp(msg.xp);
+        setCurrency(msg.currency);
+        setLevel(msg.level);
+      }
+
+      if (msg.type === "levelUp") {
+        setLevel(msg.newLevel);
+        setCurrency((c) => c + msg.currencyAwarded);
+        setLevelUpMsg(`Level ${msg.newLevel}! +${msg.currencyAwarded} coins`);
+        setTimeout(() => setLevelUpMsg(null), 4000);
       }
     };
 
@@ -1730,6 +1774,48 @@ function applyMap(map: MapConfig, ) {
         onBakeMap={handleBakeMap}
         onFileSelected={handleFileSelected}
       />
+
+      <HUDProfile xp={xp} currency={currency} level={level} />
+
+      {levelUpMsg && (
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 pointer-events-none z-30">
+          <div
+            className="px-6 py-2.5 rounded-2xl text-sm font-bold animate-bounce"
+            style={{
+              background: "linear-gradient(160deg, rgba(255,220,60,0.25) 0%, rgba(180,120,0,0.2) 100%)",
+              border: "1px solid rgba(255,200,60,0.5)",
+              backdropFilter: "blur(14px)",
+              color: "rgba(255,230,100,0.95)",
+              textShadow: "0 0 12px rgba(200,160,0,0.8)",
+              boxShadow: "0 0 24px rgba(200,140,0,0.4)",
+            }}
+          >
+            {levelUpMsg}
+          </div>
+        </div>
+      )}
+
+      <StoreOverlay
+        open={storeOpen}
+        currency={currency}
+        onClose={() => setStoreOpen(false)}
+        onPurchaseComplete={(newBalance) => {
+          setCurrency(newBalance);
+          setInventoryRefreshKey((k) => k + 1);
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "refreshInventory" } satisfies ClientMessage));
+          }
+        }}
+      />
+
+      {currentMapId === `home_${userId}` && (
+        <InventoryPicker
+          refreshKey={inventoryRefreshKey}
+          onSelectItem={(item) => enterStoreItemPlacementModeRef.current?.(item)}
+          onOpenStore={() => setStoreOpen(true)}
+        />
+      )}
     </div>
   );
 }

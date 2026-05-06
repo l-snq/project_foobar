@@ -322,25 +322,39 @@ export class Room {
 
     if (msg.type === "placeStoreItem") {
       if (!this.isHome || client.userId !== this.ownerUserId) return;
-      if (!client.ownedItemIds.has(msg.itemId)) return;
-      const storeItem = getStoreItem(msg.itemId);
-      if (!storeItem) return;
+      if (!client.ownedItemIds.has(msg.itemId)) {
+        console.warn(`[placeStoreItem] ${client.userId} does not own item ${msg.itemId}`);
+        return;
+      }
       if (msg.scale < 0.1 || msg.scale > 10) return;
       if (Math.abs(msg.x) > 40 || Math.abs(msg.z) > 40) return;
-      const hitboxRadius = Math.max(0.1, Math.min(10, msg.hitboxRadius ?? 1.0));
-      const obj: PlacedObject = {
-        id: randomUUID(), url: storeItem.model_url, placedBy: id,
-        x: msg.x, z: msg.z, rotY: msg.rotY, scale: msg.scale,
-        hitboxShape: msg.hitboxShape === "box" ? "box" : "cylinder",
-        hitboxRadius,
-        hitboxOffsetX: msg.hitboxOffsetX ?? 0,
-        hitboxOffsetZ: msg.hitboxOffsetZ ?? 0,
-      };
-      this.placedObjects.set(obj.id, obj);
-      this.physics.addPlacedBody(obj);
-      this.saveObjects();
-      this.broadcast({ type: "objectPlaced", object: obj });
-      if (client.userId) client.pendingXp += XP_PER_OBJECT_PLACED;
+      getStoreItem(msg.itemId).then((storeItem) => {
+        if (!storeItem) {
+          console.warn(`[placeStoreItem] item ${msg.itemId} not found in store`);
+          return;
+        }
+        const obj: PlacedObject = {
+          id: randomUUID(), url: storeItem.model_url, placedBy: id,
+          x: msg.x, z: msg.z, rotY: msg.rotY, scale: msg.scale,
+          hitboxShape: msg.hitboxShape === "box" ? "box" : "cylinder",
+          hitboxRadius: Math.max(0.1, Math.min(10, msg.hitboxRadius ?? 1.0)),
+          hitboxOffsetX: msg.hitboxOffsetX ?? 0,
+          hitboxOffsetZ: msg.hitboxOffsetZ ?? 0,
+        };
+        this.placedObjects.set(obj.id, obj);
+        this.physics.addPlacedBody(obj);
+        this.saveObjects();
+        this.broadcast({ type: "objectPlaced", object: obj });
+        if (client.userId) client.pendingXp += XP_PER_OBJECT_PLACED;
+      }).catch((e) => console.error(`[placeStoreItem] lookup failed:`, e));
+    }
+
+    if (msg.type === "refreshInventory") {
+      if (client.userId) {
+        loadInventory(client.userId)
+          .then((ids) => { client.ownedItemIds = ids; })
+          .catch((e) => console.error(`[inventory] refresh failed for ${client.userId}:`, e));
+      }
     }
 
     if (msg.type === "moveObject") {

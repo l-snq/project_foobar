@@ -77,7 +77,8 @@ export async function POST(request: NextRequest) {
     if (error) throw error;
     return Response.json(data, { status: 201 });
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
     console.error("[admin/store] POST error:", e);
-    return Response.json({ error: "Internal server error" }, { status: 500 });
+    return Response.json({ error: msg }, { status: 500 });
   }
 }

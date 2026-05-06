@@ -23,7 +23,7 @@ export async function uploadStoreModel(
   const { error } = await adminSupabase.storage
     .from(BUCKET)
     .upload(`models/${filename}`, buffer, {
-      contentType: "model/gltf-binary",
+      contentType: "application/octet-stream",
       upsert: false,
     });
   if (error) throw error;

@@ -1,19 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
-import type { MapConfig, PlacedObject } from "./types";
+import type { MapConfig, PlacedObject, StoreItem } from "./types";
+export type { StoreItem };
 
 export interface Profile {
   xp: number;
   currency: number;
   level: number;
-}
-
-export interface StoreItem {
-  id: string;
-  name: string;
-  model_url: string;
-  price: number;
-  thumbnail_url: string | null;
-  category: string;
 }
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;

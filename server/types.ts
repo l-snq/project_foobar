@@ -1,5 +1,14 @@
 export type ClientId = string;
 
+export interface StoreItem {
+  id: string;
+  name: string;
+  model_url: string;
+  price: number;
+  thumbnail_url: string | null;
+  category: string;
+}
+
 export type Weapon = "none" | "pistol";
 
 export interface StaticObject {
@@ -106,6 +115,7 @@ export type ClientMessage =
   | { type: "deleteObject"; id: string }
   | { type: "bakeMap" }
   | { type: "placeStoreItem"; itemId: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number }
+  | { type: "refreshInventory" }
 
 export interface ScoreEntry {
   id: ClientId;
