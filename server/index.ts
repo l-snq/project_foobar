@@ -5,6 +5,7 @@ import { join } from "path";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { Room, MAP_DIR } from "./Room";
 import { loadHomeData, insertHome } from "./db";
+import { initStoreCache } from "./storeCache";
 import type { MapConfig } from "./types";
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -49,6 +50,8 @@ async function main() {
   );
   await (RAPIER as unknown as { init(buf: Buffer): Promise<void> }).init(wasmBuf);
   console.log("[server] Rapier WASM initialized");
+
+  await initStoreCache();
 
   // Pre-load all static map rooms from disk (exclude templates and home instances)
   const mapIds = readdirSync(MAP_DIR)

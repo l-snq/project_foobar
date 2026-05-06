@@ -7,7 +7,12 @@ import type {
   ClientId, PlayerState, ProjectileState, ScoreEntry,
   ServerMessage, ClientMessage, Weapon, PlacedObject, MapConfig, StaticObject,
 } from "./types";
-import { saveHomePlacedObjects } from "./db";
+import { saveHomePlacedObjects, upsertProfile, addXpAndCurrency, loadInventory } from "./db";
+import { getStoreItem } from "./storeCache";
+import {
+  IDLE_XP_PER_TICK, XP_PER_KILL, XP_PER_OBJECT_PLACED,
+  XP_FLUSH_TICKS, CURRENCY_PER_LEVEL,
+} from "./xp";
 import { RoomPhysics, PLAYER_RADIUS } from "./physics";
 
 const TICK_RATE = 20;
@@ -46,6 +51,9 @@ interface Client {
   killStreak: number;
   onRampage: boolean;
   joinedAtTick: number;
+  pendingXp: number;
+  lastKnownLevel: number;
+  ownedItemIds: Set<string>;
 }
 
 interface LiveProjectile extends ProjectileState {
@@ -159,6 +167,7 @@ export class Room {
       inputX: 0, inputZ: 0, rotY: 0,
       weapon: "none", emote: null, joined: false, lastShotAt: 0, reloadingUntil: 0,
       killStreak: 0, onRampage: false, joinedAtTick: 0,
+      pendingXp: 0, lastKnownLevel: 1, ownedItemIds: new Set(),
     });
     const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick, map: this.map };
     ws.send(JSON.stringify(handshake));
@@ -201,6 +210,24 @@ export class Room {
       });
       this.scores.set(id, { id, name, kills: 0, deaths: 0 });
       this.physics.addPlayer(id, spawn.x, spawn.z);
+
+      if (client.userId) {
+        Promise.all([
+          upsertProfile(client.userId),
+          loadInventory(client.userId),
+        ]).then(([profile, itemIds]) => {
+          client.lastKnownLevel = profile.level;
+          client.ownedItemIds = itemIds;
+          if (client.ws.readyState === 1) {
+            client.ws.send(JSON.stringify({
+              type: "profileSync",
+              xp: profile.xp,
+              currency: profile.currency,
+              level: profile.level,
+            } satisfies ServerMessage));
+          }
+        }).catch((e) => console.error(`[profile] join load failed for ${client.userId}:`, e));
+      }
       return;
     }
 
@@ -290,6 +317,30 @@ export class Room {
       this.physics.addPlacedBody(obj);
       this.saveObjects();
       this.broadcast({ type: "objectPlaced", object: obj });
+      if (client.userId) client.pendingXp += XP_PER_OBJECT_PLACED;
+    }
+
+    if (msg.type === "placeStoreItem") {
+      if (!this.isHome || client.userId !== this.ownerUserId) return;
+      if (!client.ownedItemIds.has(msg.itemId)) return;
+      const storeItem = getStoreItem(msg.itemId);
+      if (!storeItem) return;
+      if (msg.scale < 0.1 || msg.scale > 10) return;
+      if (Math.abs(msg.x) > 40 || Math.abs(msg.z) > 40) return;
+      const hitboxRadius = Math.max(0.1, Math.min(10, msg.hitboxRadius ?? 1.0));
+      const obj: PlacedObject = {
+        id: randomUUID(), url: storeItem.model_url, placedBy: id,
+        x: msg.x, z: msg.z, rotY: msg.rotY, scale: msg.scale,
+        hitboxShape: msg.hitboxShape === "box" ? "box" : "cylinder",
+        hitboxRadius,
+        hitboxOffsetX: msg.hitboxOffsetX ?? 0,
+        hitboxOffsetZ: msg.hitboxOffsetZ ?? 0,
+      };
+      this.placedObjects.set(obj.id, obj);
+      this.physics.addPlacedBody(obj);
+      this.saveObjects();
+      this.broadcast({ type: "objectPlaced", object: obj });
+      if (client.userId) client.pendingXp += XP_PER_OBJECT_PLACED;
     }
 
     if (msg.type === "moveObject") {
@@ -355,6 +406,7 @@ export class Room {
       if (state.health <= 0) continue;
 
       state.moving = client.inputX !== 0 || client.inputZ !== 0;
+      if (client.userId) client.pendingXp += IDLE_XP_PER_TICK;
       state.rotY = client.rotY;
       state.weapon = client.weapon;
       state.emote = client.emote;
@@ -479,6 +531,7 @@ export class Room {
             const killerScore = this.scores.get(proj.ownerId);
             if (killerScore) killerScore.kills++;
             if (shooterClient) {
+              if (shooterClient.userId) shooterClient.pendingXp += XP_PER_KILL;
               shooterClient.killStreak++;
               if (shooterClient.killStreak >= RAMPAGE_KILLS && !shooterClient.onRampage) {
                 shooterClient.onRampage = true;
@@ -508,6 +561,10 @@ export class Room {
       }
     }
 
+    if (this.tick % XP_FLUSH_TICKS === 0) {
+      this.flushXp().catch((e) => console.error("[xp] flush error:", e));
+    }
+
     this.broadcast({
       type: "snapshot",
       tick: this.tick,
@@ -517,6 +574,44 @@ export class Room {
       ),
       scores: Array.from(this.scores.values()),
     });
+  }
+
+  private async flushXp() {
+    for (const client of this.clients.values()) {
+      if (!client.joined || !client.userId || client.pendingXp <= 0) continue;
+
+      const xpToFlush = client.pendingXp;
+      client.pendingXp = 0;
+
+      try {
+        const profile = await addXpAndCurrency(client.userId, xpToFlush, 0);
+
+        if (profile.level > client.lastKnownLevel) {
+          const levelsGained = profile.level - client.lastKnownLevel;
+          const currencyAwarded = levelsGained * CURRENCY_PER_LEVEL;
+          await addXpAndCurrency(client.userId, 0, currencyAwarded);
+          profile.currency += currencyAwarded;
+          client.lastKnownLevel = profile.level;
+          if (client.ws.readyState === 1) {
+            client.ws.send(JSON.stringify({
+              type: "levelUp", newLevel: profile.level, currencyAwarded,
+            } satisfies ServerMessage));
+          }
+        }
+
+        if (client.ws.readyState === 1) {
+          client.ws.send(JSON.stringify({
+            type: "profileSync",
+            xp: profile.xp,
+            currency: profile.currency,
+            level: profile.level,
+          } satisfies ServerMessage));
+        }
+      } catch (e) {
+        client.pendingXp += xpToFlush; // return xp on failure so it's retried next flush
+        console.error(`[xp] flush failed for ${client.userId}:`, e);
+      }
+    }
   }
 
   private broadcast(msg: ServerMessage) {

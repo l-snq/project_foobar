@@ -105,6 +105,7 @@ export type ClientMessage =
   | { type: "moveObject"; id: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number }
   | { type: "deleteObject"; id: string }
   | { type: "bakeMap" }
+  | { type: "placeStoreItem"; itemId: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number }
 
 export interface ScoreEntry {
   id: ClientId;
@@ -129,3 +130,5 @@ export type ServerMessage =
   | { type: "changeMap"; targetMapId: string }
   | { type: "mapChangeError"; reason: string }
   | { type: "mapBaked" }
+  | { type: "profileSync"; xp: number; currency: number; level: number }
+  | { type: "levelUp"; newLevel: number; currencyAwarded: number }

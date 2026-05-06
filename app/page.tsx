@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase, fetchUsername } from "@/lib/supabase";
 import GameCanvas from "@/components/GameCanvas";
+import AdminStorePanel from "@/components/AdminStorePanel";
 
 type View = "loading" | "auth" | "game";
 type Tab = "signin" | "signup";
@@ -141,6 +142,7 @@ export default function Home() {
     return (
       <main className="w-screen h-screen overflow-hidden bg-black relative">
         <GameCanvas playerName={username} userId={userId} />
+        <AdminStorePanel userId={userId} />
         <button
           className="absolute top-4 right-4 px-3 py-1.5 rounded-xl text-xs font-semibold z-50 btn-glass"
           style={{
