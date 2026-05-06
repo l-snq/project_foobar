@@ -9,53 +9,14 @@ import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon
 import { supabase } from "@/lib/supabase";
 import RAPIER from "@dimforge/rapier3d-compat";
 import GameHUD from "./GameHUD";
+import { buildGround, makeNameLabel, makeGhost, isOccluded, makeProjectileLine } from "./utils/threeHelpers";
+import { updateLocalPlayer } from "./GameLoopUtils";
+import { Game } from "./GameManager";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "ws://localhost:3001";
 const LERP_FACTOR = 0.2;
 const MAX_HEALTH = 100;
-
-// ---------------------------------------------------------------------------
-function buildGround(size: number, colorHex: number): THREE.Group {
-  const group = new THREE.Group();
-  const geo = new THREE.PlaneGeometry(size, size);
-  const mat = new THREE.MeshLambertMaterial({ color: colorHex });
-  const plane = new THREE.Mesh(geo, mat);
-  plane.rotation.x = -Math.PI / 2;
-  group.add(plane);
-  const grid = new THREE.GridHelper(size, size, 0x2a5d34, 0x2a5d34);
-  grid.position.y = 0.005;
-  group.add(grid);
-  return group;
-}
-
-function makeNameLabel(name: string, isLocal = false): CSS2DObject {
-  const div = document.createElement("div");
-  div.textContent = name;
-  div.style.cssText = `
-    color: ${isLocal ? "#7dd3fc" : "#ffffff"};
-    font-size: 12px;
-    font-family: sans-serif;
-    font-weight: 600;
-    text-shadow: 0 1px 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.6);
-    pointer-events: none;
-    white-space: nowrap;
-    user-select: none;
-  `;
-  const label = new CSS2DObject(div);
-  label.position.set(0, 2.2, 0);
-  return label;
-}
-
 const BULLET_LENGTH = 0.6; // world units
-
-function makeProjectileLine(): THREE.Line {
-  // Two points: tail then head. Updated each frame from server state.
-  const positions = new Float32Array(6); // 2 × xyz
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const mat = new THREE.LineBasicMaterial({ color: 0xffdd00 });
-  return new THREE.Line(geo, mat);
-}
 
 interface GltfTemplate {
   scene: THREE.Group;
@@ -247,38 +208,6 @@ export default function GameCanvas({ playerName, userId }: Props) {
       refreshSelectionBox(entry.root);
     });
 
-    // ---- Occlusion ghost system ----
-    // occluders: add wall/level meshes here when level geometry is introduced.
-    // Currently empty, so ghosts never show (ready for when maps are added).
-    const occluders: THREE.Object3D[] = [];
-    const ghostOcclusionRaycaster = new THREE.Raycaster();
-
-    function makeGhost(): THREE.Mesh {
-      const geo = new THREE.CylinderGeometry(0.28, 0.28, 1.6, 10);
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0x44ff88,
-        depthTest: false,
-        depthWrite: false,
-        transparent: true,
-        opacity: 0.55,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.y = 0.8;
-      mesh.visible = false;
-      mesh.name = "__ghost";
-      return mesh;
-    }
-
-    function isOccluded(worldPos: THREE.Vector3): boolean {
-      if (occluders.length === 0) return false;
-      const target = worldPos.clone();
-      target.y += 0.9;
-      const dir = target.clone().sub(camera.position).normalize();
-      const dist = camera.position.distanceTo(target);
-      ghostOcclusionRaycaster.set(camera.position, dir);
-      ghostOcclusionRaycaster.far = dist - 0.2;
-      return ghostOcclusionRaycaster.intersectObjects(occluders, true).length > 0;
-    }
 
     // ---- Reload ----
     function triggerReload() {
@@ -498,9 +427,13 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
     // ---- Mouse ----
     const mouse = new THREE.Vector2(0, 0);
+		Game.mouse = mouse;
     const raycaster = new THREE.Raycaster();
+		Game.raycaster = raycaster;
     const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+		Game.groundPlane = groundPlane;
     const groundHit = new THREE.Vector3();
+		Game.groundHit = groundHit;
     function onMouseMove(e: MouseEvent) {
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -572,7 +505,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
     let localGhostPistol: THREE.Mesh | null = null;
     let characterRoot: THREE.Object3D | null = null; // points to whichever model is active
 
-    let serverPos = new THREE.Vector3();
+    const serverPos = new THREE.Vector3();
     let myId: string | null = null;
     const pendingRemoteStates: PlayerState[] = [];
 
@@ -698,140 +631,141 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
     // Static objects are spawned by applyMap when the server sends the map config.
 
-    // ---- Map config application ----
-    function applyMap(map: MapConfig) {
-      if (!mount) return;
-      // Sky gradient
-      mount.style.background = `linear-gradient(180deg, ${map.environment.sky.top} 0%, ${map.environment.sky.mid} 40%, ${map.environment.sky.horizon} 100%)`;
+function applyMap(map: MapConfig, ) {
+	const mount = mountRef.current;
+	if (!mount) return;
+	// Sky gradient
+	mount.style.background = `linear-gradient(180deg, ${map.environment.sky.top} 0%, ${map.environment.sky.mid} 40%, ${map.environment.sky.horizon} 100%)`;
 
-      // Fog
-      scene.fog = new THREE.Fog(new THREE.Color(map.environment.fog.color), map.environment.fog.near, map.environment.fog.far);
+	// Fog
+	scene.fog = new THREE.Fog(new THREE.Color(map.environment.fog.color), map.environment.fog.near, map.environment.fog.far);
 
-      // Replace lights
-      for (const l of mapLights) scene.remove(l);
-      mapLights = [];
+	// Replace lights
+	for (const l of mapLights) scene.remove(l);
+	mapLights = [];
 
-      const ambient = new THREE.AmbientLight(new THREE.Color(map.environment.ambientLight.color), map.environment.ambientLight.intensity);
-      scene.add(ambient);
-      mapLights.push(ambient);
+	const ambient = new THREE.AmbientLight(new THREE.Color(map.environment.ambientLight.color), map.environment.ambientLight.intensity);
+	scene.add(ambient);
+	mapLights.push(ambient);
 
-      const sunLight = new THREE.DirectionalLight(new THREE.Color(map.environment.sun.color), map.environment.sun.intensity);
-      sunLight.position.set(map.environment.sun.x, map.environment.sun.y, map.environment.sun.z);
-      sunLight.castShadow = true;
-      sunLight.shadow.mapSize.set(2048, 2048);
-      sunLight.shadow.camera.near = 0.5;
-      sunLight.shadow.camera.far = 80;
-      sunLight.shadow.camera.left = -28;
-      sunLight.shadow.camera.right = 28;
-      sunLight.shadow.camera.top = 28;
-      sunLight.shadow.camera.bottom = -28;
-      sunLight.shadow.bias = -0.001;
-      scene.add(sunLight);
-      mapLights.push(sunLight);
+	const sunLight = new THREE.DirectionalLight(new THREE.Color(map.environment.sun.color), map.environment.sun.intensity);
+	sunLight.position.set(map.environment.sun.x, map.environment.sun.y, map.environment.sun.z);
+	sunLight.castShadow = true;
+	sunLight.shadow.mapSize.set(2048, 2048);
+	sunLight.shadow.camera.near = 0.5;
+	sunLight.shadow.camera.far = 80;
+	sunLight.shadow.camera.left = -28;
+	sunLight.shadow.camera.right = 28;
+	sunLight.shadow.camera.top = 28;
+	sunLight.shadow.camera.bottom = -28;
+	sunLight.shadow.bias = -0.001;
+	scene.add(sunLight);
+	mapLights.push(sunLight);
 
-      // Ground
-      if (mapGround) { scene.remove(mapGround); mapGround = null; }
-      if (!map.hideGround) {
-        mapGround = buildGround(map.groundSize, parseInt(map.environment.groundColor.slice(1), 16));
-        mapGround.traverse((child) => { if (child instanceof THREE.Mesh) child.receiveShadow = true; });
-        scene.add(mapGround);
-      }
+	// Ground
+	if (mapGround) { scene.remove(mapGround); mapGround = null; }
+	if (!map.hideGround) {
+		mapGround = buildGround(map.groundSize, parseInt(map.environment.groundColor.slice(1), 16));
+		mapGround.traverse((child) => { if (child instanceof THREE.Mesh) child.receiveShadow = true; });
+		scene.add(mapGround);
+	}
 
-      // Static objects — group by URL so each GLTF is fetched once (skip collisionOnly)
-      const byUrl = new Map<string, StaticObject[]>();
-      for (const obj of map.staticObjects) {
-        if (obj.collisionOnly) continue;
-        const list = byUrl.get(obj.url) ?? [];
-        list.push(obj);
-        byUrl.set(obj.url, list);
-      }
-      for (const [url, objs] of byUrl) {
-        loader.load(url, (gltf) => {
-          for (const obj of objs) {
-            const mesh = gltf.scene.clone(true);
-            mesh.position.set(obj.x, 0, obj.z);
-            mesh.rotation.y = obj.rotY;
-            scene.add(mesh);
-            mesh.traverse((child) => {
-              if (child instanceof THREE.Mesh) {
-                occluders.push(child);
-                child.castShadow = true;
-                child.receiveShadow = true;
-              }
-            });
-          }
-        });
-      }
+	// Static objects — group by URL so each GLTF is fetched once (skip collisionOnly)
+	const occluders: THREE.Object3D[] = [];
+	const byUrl = new Map<string, StaticObject[]>();
+	for (const obj of map.staticObjects) {
+		if (obj.collisionOnly) continue;
+		const list = byUrl.get(obj.url) ?? [];
+		list.push(obj);
+		byUrl.set(obj.url, list);
+	}
+	for (const [url, objs] of byUrl) {
+		loader.load(url, (gltf) => {
+			for (const obj of objs) {
+				const mesh = gltf.scene.clone(true);
+				mesh.position.set(obj.x, 0, obj.z);
+				mesh.rotation.y = obj.rotY;
+				scene.add(mesh);
+				mesh.traverse((child) => {
+					if (child instanceof THREE.Mesh) {
+						occluders.push(child);
+						child.castShadow = true;
+						child.receiveShadow = true;
+					}
+				});
+			}
+		});
+	}
 
-      // Water zones
-      for (const zone of map.waterZones) {
-        const waterGeo = new THREE.PlaneGeometry(zone.width, zone.height);
-        const waterMat = new THREE.MeshBasicMaterial({
-          color: 0x1a7bbf,
-          transparent: true,
-          opacity: 0.55,
-          side: THREE.DoubleSide,
-        });
-        const waterMesh = new THREE.Mesh(waterGeo, waterMat);
-        waterMesh.rotation.x = -Math.PI / 2;
-        waterMesh.position.set(zone.x, 0.02, zone.z);
-        scene.add(waterMesh);
-      }
+	// Water zones
+	for (const zone of map.waterZones) {
+		const waterGeo = new THREE.PlaneGeometry(zone.width, zone.height);
+		const waterMat = new THREE.MeshBasicMaterial({
+			color: 0x1a7bbf,
+			transparent: true,
+			opacity: 0.55,
+			side: THREE.DoubleSide,
+		});
+		const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+		waterMesh.rotation.x = -Math.PI / 2;
+		waterMesh.position.set(zone.x, 0.02, zone.z);
+		scene.add(waterMesh);
+	}
 
-      // Door trigger zones — glowing ring on ground + floating label
-      for (const door of map.doors) {
-        const ringGeo = new THREE.RingGeometry(door.triggerRadius - 0.12, door.triggerRadius + 0.12, 40);
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: 0x44ffcc,
-          transparent: true,
-          opacity: 0.7,
-          side: THREE.DoubleSide,
-        });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
-        ring.rotation.x = -Math.PI / 2;
-        ring.position.set(door.x, 0.03, door.z);
-        scene.add(ring);
+	// Door trigger zones — glowing ring on ground + floating label
+	for (const door of map.doors) {
+		const ringGeo = new THREE.RingGeometry(door.triggerRadius - 0.12, door.triggerRadius + 0.12, 40);
+		const ringMat = new THREE.MeshBasicMaterial({
+			color: 0x44ffcc,
+			transparent: true,
+			opacity: 0.7,
+			side: THREE.DoubleSide,
+		});
+		const ring = new THREE.Mesh(ringGeo, ringMat);
+		ring.rotation.x = -Math.PI / 2;
+		ring.position.set(door.x, 0.03, door.z);
+		scene.add(ring);
 
-        const labelDiv = document.createElement("div");
-        labelDiv.textContent = `→ ${door.label}`;
-        labelDiv.style.cssText = `
-          color: #44ffcc;
-          font-size: 13px;
-          font-family: sans-serif;
-          font-weight: 700;
-          text-shadow: 0 0 8px rgba(0,255,200,0.9), 0 1px 3px rgba(0,0,0,0.8);
-          pointer-events: none;
-          white-space: nowrap;
-          user-select: none;
-        `;
-        const doorLabel = new CSS2DObject(labelDiv);
-        doorLabel.position.set(door.x, 2.2, door.z);
-        scene.add(doorLabel);
-      }
+		const labelDiv = document.createElement("div");
+		labelDiv.textContent = `→ ${door.label}`;
+		labelDiv.style.cssText = `
+			color: #44ffcc;
+			font-size: 13px;
+			font-family: sans-serif;
+			font-weight: 700;
+			text-shadow: 0 0 8px rgba(0,255,200,0.9), 0 1px 3px rgba(0,0,0,0.8);
+			pointer-events: none;
+			white-space: nowrap;
+			user-select: none;
+		`;
+		const doorLabel = new CSS2DObject(labelDiv);
+		doorLabel.position.set(door.x, 2.2, door.z);
+		scene.add(doorLabel);
+	}
 
-      // Debug wireframes for static colliders
-      for (const obj of map.staticObjects) {
-        const h = obj.hitboxHeight ?? 1.0;
-        const depth = obj.hitboxDepth ?? obj.hitboxRadius;
-        let geo: THREE.BufferGeometry;
-        if (obj.hitboxShape === "box") {
-          geo = new THREE.BoxGeometry(obj.hitboxRadius * 2, h, depth * 2);
-        } else if (obj.hitboxShape === "capsule") {
-          geo = new THREE.CapsuleGeometry(obj.hitboxRadius, h, 4, 8);
-        } else {
-          geo = new THREE.CylinderGeometry(obj.hitboxRadius, obj.hitboxRadius, h, 16);
-        }
-        const color = obj.hitboxShape === "box" ? 0xff4400 : obj.hitboxShape === "capsule" ? 0xffaa00 : 0x00ff88;
-        const mat = new THREE.MeshBasicMaterial({ color, wireframe: true });
-        const dbMesh = new THREE.Mesh(geo, mat);
-        dbMesh.position.set(obj.x, h / 2, obj.z);
-        dbMesh.visible = debugVisible;
-        scene.add(dbMesh);
-        debugMeshes.push(dbMesh);
-      }
+	// Debug wireframes for static colliders
+	for (const obj of map.staticObjects) {
+		const h = obj.hitboxHeight ?? 1.0;
+		const depth = obj.hitboxDepth ?? obj.hitboxRadius;
+		let geo: THREE.BufferGeometry;
+		if (obj.hitboxShape === "box") {
+			geo = new THREE.BoxGeometry(obj.hitboxRadius * 2, h, depth * 2);
+		} else if (obj.hitboxShape === "capsule") {
+			geo = new THREE.CapsuleGeometry(obj.hitboxRadius, h, 4, 8);
+		} else {
+			geo = new THREE.CylinderGeometry(obj.hitboxRadius, obj.hitboxRadius, h, 16);
+		}
+		const color = obj.hitboxShape === "box" ? 0xff4400 : obj.hitboxShape === "capsule" ? 0xffaa00 : 0x00ff88;
+		const mat = new THREE.MeshBasicMaterial({ color, wireframe: true });
+		const dbMesh = new THREE.Mesh(geo, mat);
+		dbMesh.position.set(obj.x, h / 2, obj.z);
+		dbMesh.visible = debugVisible;
+		scene.add(dbMesh);
+		debugMeshes.push(dbMesh);
+	}
 
-      buildRapierWorld(map);
-    }
+	buildRapierWorld(map);
+}
 
     // ---- Placed object helpers ----
     function loadGltfCached(url: string): Promise<THREE.Group> {
@@ -1395,6 +1329,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
     let prev = performance.now();
     let rafId: number;
     let inputSendAccum = 0;
+		Game.inputSendAccum = inputSendAccum;
     const INPUT_SEND_INTERVAL = 1000 / 20;
 
     function tick() {
@@ -1430,7 +1365,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
       let rotY = characterRoot?.rotation.y ?? 0;
       if (characterRoot) {
-        raycaster.setFromCamera(mouse, camera);
+        Game.raycaster.setFromCamera(Game.mouse, camera);
         if (raycaster.ray.intersectPlane(groundPlane, groundHit)) {
           const dx = groundHit.x - characterRoot.position.x;
           const dz = groundHit.z - characterRoot.position.z;
@@ -1494,7 +1429,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
       if (characterRoot && !localDead) {
         const worldPos = new THREE.Vector3();
         characterRoot.getWorldPosition(worldPos);
-        const occluded = isOccluded(worldPos);
+        const occluded = isOccluded(camera, worldPos);
         if (localGhostUnarmed) localGhostUnarmed.visible = occluded && weaponRef.current !== "pistol";
         if (localGhostPistol) localGhostPistol.visible = occluded && weaponRef.current === "pistol";
       } else {
@@ -1586,7 +1521,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
         // Remote player occlusion ghost
         const remoteWorldPos = new THREE.Vector3();
         (isPistol ? remote.rootPistol : remote.rootUnarmed).getWorldPosition(remoteWorldPos);
-        remote.ghost.visible = isOccluded(remoteWorldPos);
+        remote.ghost.visible = isOccluded(camera, remoteWorldPos);
       }
 
       // Particle explosions
