@@ -260,6 +260,14 @@ export class Room {
       this.broadcast({ type: "chat", fromId: id, fromName: client.name, text });
     }
 
+    if (msg.type === "requestMapChange") {
+      // Trigger a map change via the server
+      this.pendingMapChange.add(id);
+      client.ws.send(JSON.stringify({ type: "changeMap", targetMapId: msg.targetMapId } satisfies ServerMessage));
+      this.remove(id);
+      return;
+    }
+
     if (msg.type === "placeObject") {
       if (this.isHome && client.userId !== this.ownerUserId) return;
       if (
@@ -314,7 +322,7 @@ export class Room {
     }
 
     if (msg.type === "bakeMap") {
-      const newStatics: StaticObject[] = [
+      const newStatics = [
         ...this.map.staticObjects,
         ...Array.from(this.placedObjects.values()).map((obj) => ({
           url: obj.url,
