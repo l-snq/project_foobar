@@ -9,7 +9,7 @@ export class RoomPhysics {
   playerBodies = new Map<ClientId, RAPIER.RigidBody>();
   playerColliders = new Map<ClientId, RAPIER.Collider>();
   controllers = new Map<ClientId, RAPIER.KinematicCharacterController>();
-  placedBodies = new Map<string, RAPIER.RigidBody>();
+  placedBodies = new Map<string, RAPIER.RigidBody[]>();
 
   constructor(map: MapConfig) {
     this.world = this._buildWorld(map);
@@ -37,27 +37,41 @@ export class RoomPhysics {
   }
 
   addPlacedBody(obj: PlacedObject): void {
-    const hx = obj.x + (obj.hitboxOffsetX ?? 0);
-    const hz = obj.z + (obj.hitboxOffsetZ ?? 0);
-    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(hx, 0, hz));
-    if (obj.hitboxShape === "box") {
-      this.world.createCollider(
-        RAPIER.ColliderDesc.cuboid(obj.hitboxRadius, PLAYER_HALF_HEIGHT, obj.hitboxRadius),
-        body,
-      );
+    const bodies: RAPIER.RigidBody[] = [];
+
+    if (obj.hitboxes && obj.hitboxes.length > 0) {
+      const cos = Math.cos(obj.rotY);
+      const sin = Math.sin(obj.rotY);
+      for (const hb of obj.hitboxes) {
+        const wx = obj.x + (hb.offsetX * cos + hb.offsetZ * sin) * obj.scale;
+        const wz = obj.z + (-hb.offsetX * sin + hb.offsetZ * cos) * obj.scale;
+        const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(wx, 0, wz));
+        if (hb.shape === "cylinder") {
+          this.world.createCollider(RAPIER.ColliderDesc.cylinder(PLAYER_HALF_HEIGHT, hb.halfW * obj.scale), body);
+        } else {
+          this.world.createCollider(RAPIER.ColliderDesc.cuboid(hb.halfW * obj.scale, PLAYER_HALF_HEIGHT, hb.halfD * obj.scale), body);
+        }
+        bodies.push(body);
+      }
     } else {
-      this.world.createCollider(
-        RAPIER.ColliderDesc.cylinder(PLAYER_HALF_HEIGHT, obj.hitboxRadius),
-        body,
-      );
+      const hx = obj.x + (obj.hitboxOffsetX ?? 0);
+      const hz = obj.z + (obj.hitboxOffsetZ ?? 0);
+      const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(hx, 0, hz));
+      if (obj.hitboxShape === "box") {
+        this.world.createCollider(RAPIER.ColliderDesc.cuboid(obj.hitboxRadius, PLAYER_HALF_HEIGHT, obj.hitboxRadius), body);
+      } else {
+        this.world.createCollider(RAPIER.ColliderDesc.cylinder(PLAYER_HALF_HEIGHT, obj.hitboxRadius), body);
+      }
+      bodies.push(body);
     }
-    this.placedBodies.set(obj.id, body);
+
+    this.placedBodies.set(obj.id, bodies);
   }
 
   removePlacedBody(objectId: string): void {
-    const body = this.placedBodies.get(objectId);
-    if (body) {
-      this.world.removeRigidBody(body);
+    const bodies = this.placedBodies.get(objectId);
+    if (bodies) {
+      for (const body of bodies) this.world.removeRigidBody(body);
       this.placedBodies.delete(objectId);
     }
   }

@@ -312,6 +312,7 @@ export class Room {
         hitboxRadius,
         hitboxOffsetX: msg.hitboxOffsetX ?? 0,
         hitboxOffsetZ: msg.hitboxOffsetZ ?? 0,
+        hitboxes: msg.hitboxes,
       };
       this.placedObjects.set(obj.id, obj);
       this.physics.addPlacedBody(obj);
@@ -340,6 +341,7 @@ export class Room {
           hitboxRadius: Math.max(0.1, Math.min(10, msg.hitboxRadius ?? 1.0)),
           hitboxOffsetX: msg.hitboxOffsetX ?? 0,
           hitboxOffsetZ: msg.hitboxOffsetZ ?? 0,
+          hitboxes: msg.hitboxes,
         };
         this.placedObjects.set(obj.id, obj);
         this.physics.addPlacedBody(obj);
@@ -372,6 +374,7 @@ export class Room {
       obj.hitboxRadius = Math.max(0.1, Math.min(10, msg.hitboxRadius ?? obj.hitboxRadius));
       obj.hitboxOffsetX = msg.hitboxOffsetX ?? 0;
       obj.hitboxOffsetZ = msg.hitboxOffsetZ ?? 0;
+      obj.hitboxes = msg.hitboxes;
       this.physics.addPlacedBody(obj);
       this.saveObjects();
       this.broadcast({ type: "objectMoved", object: obj });

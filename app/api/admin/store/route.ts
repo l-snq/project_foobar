@@ -82,3 +82,46 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: msg }, { status: 500 });
   }
 }
+
+// DELETE /api/admin/store
+// JSON body: { token, itemId }
+export async function DELETE(request: NextRequest) {
+  try {
+    const { token, itemId } = await request.json();
+    if (!token || !itemId || !(await requireAdmin(token))) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { data: item, error: fetchError } = await adminSupabase
+      .from("store_items")
+      .select("id, model_url, thumbnail_url")
+      .eq("id", itemId)
+      .single();
+
+    if (fetchError || !item) {
+      return Response.json({ error: "Item not found" }, { status: 404 });
+    }
+
+    const { error: deleteError } = await adminSupabase
+      .from("store_items")
+      .delete()
+      .eq("id", itemId);
+
+    if (deleteError) throw deleteError;
+
+    // Best-effort: remove files from storage
+    const MARKER = "store-assets/";
+    const paths: string[] = [];
+    if (item.model_url?.includes(MARKER)) paths.push(item.model_url.split(MARKER)[1]);
+    if (item.thumbnail_url?.includes(MARKER)) paths.push(item.thumbnail_url.split(MARKER)[1]);
+    if (paths.length > 0) {
+      await adminSupabase.storage.from("store-assets").remove(paths).catch(() => {});
+    }
+
+    return Response.json({ ok: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[admin/store] DELETE error:", e);
+    return Response.json({ error: msg }, { status: 500 });
+  }
+}

@@ -5,7 +5,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
-import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon, ScoreEntry, PlacedObject, MapConfig, StaticObject, DoorConfig } from "../server/types";
+import type { ServerMessage, ClientMessage, PlayerState, ProjectileState, Weapon, ScoreEntry, PlacedObject, MapConfig, StaticObject, DoorConfig, HitboxDef } from "../server/types";
+import { extractHitboxes, hideHitboxGroup } from "./utils/hitboxUtils";
 import { supabase } from "@/lib/supabase";
 import RAPIER from "@dimforge/rapier3d-compat";
 import GameHUD from "./GameHUD";
@@ -95,6 +96,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
   const [currency, setCurrency] = useState(0);
   const [level, setLevel] = useState(1);
   const [storeOpen, setStoreOpen] = useState(false);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
   const [levelUpMsg, setLevelUpMsg] = useState<string | null>(null);
   const [inventoryRefreshKey, setInventoryRefreshKey] = useState(0);
   const [inEditMode, setInEditMode] = useState(false);
@@ -250,7 +252,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
     let rapierPlayerBody: RAPIER.RigidBody | null = null;
     let rapierPlayerCollider: RAPIER.Collider | null = null;
     let rapierController: RAPIER.KinematicCharacterController | null = null;
-    const rapierPlacedBodies = new Map<string, RAPIER.RigidBody>();
+    const rapierPlacedBodies = new Map<string, RAPIER.RigidBody[]>();
     let rapierBounds = 40;
     let rapierReady = false;
     let pendingMapForRapier: MapConfig | null = null;
@@ -285,21 +287,41 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
     function addRapierPlacedBody(obj: PlacedObject) {
       if (!rapierWorld) return;
-      const hx = obj.x + (obj.hitboxOffsetX ?? 0);
-      const hz = obj.z + (obj.hitboxOffsetZ ?? 0);
-      const body = rapierWorld.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(hx, 0, hz));
-      if (obj.hitboxShape === "box") {
-        rapierWorld.createCollider(RAPIER.ColliderDesc.cuboid(obj.hitboxRadius, RAPIER_OHH, obj.hitboxRadius), body);
+      const bodies: RAPIER.RigidBody[] = [];
+
+      if (obj.hitboxes && obj.hitboxes.length > 0) {
+        const cos = Math.cos(obj.rotY);
+        const sin = Math.sin(obj.rotY);
+        for (const hb of obj.hitboxes) {
+          const wx = obj.x + (hb.offsetX * cos + hb.offsetZ * sin) * obj.scale;
+          const wz = obj.z + (-hb.offsetX * sin + hb.offsetZ * cos) * obj.scale;
+          const body = rapierWorld.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(wx, 0, wz));
+          if (hb.shape === "cylinder") {
+            rapierWorld.createCollider(RAPIER.ColliderDesc.cylinder(RAPIER_OHH, hb.halfW * obj.scale), body);
+          } else {
+            rapierWorld.createCollider(RAPIER.ColliderDesc.cuboid(hb.halfW * obj.scale, RAPIER_OHH, hb.halfD * obj.scale), body);
+          }
+          bodies.push(body);
+        }
       } else {
-        rapierWorld.createCollider(RAPIER.ColliderDesc.cylinder(RAPIER_OHH, obj.hitboxRadius), body);
+        const hx = obj.x + (obj.hitboxOffsetX ?? 0);
+        const hz = obj.z + (obj.hitboxOffsetZ ?? 0);
+        const body = rapierWorld.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(hx, 0, hz));
+        if (obj.hitboxShape === "box") {
+          rapierWorld.createCollider(RAPIER.ColliderDesc.cuboid(obj.hitboxRadius, RAPIER_OHH, obj.hitboxRadius), body);
+        } else {
+          rapierWorld.createCollider(RAPIER.ColliderDesc.cylinder(RAPIER_OHH, obj.hitboxRadius), body);
+        }
+        bodies.push(body);
       }
-      rapierPlacedBodies.set(obj.id, body);
+
+      rapierPlacedBodies.set(obj.id, bodies);
     }
 
     function removeRapierPlacedBody(id: string) {
-      const body = rapierPlacedBodies.get(id);
-      if (body && rapierWorld) {
-        rapierWorld.removeRigidBody(body);
+      const bodies = rapierPlacedBodies.get(id);
+      if (bodies && rapierWorld) {
+        for (const body of bodies) rapierWorld.removeRigidBody(body);
         rapierPlacedBodies.delete(id);
       }
     }
@@ -517,6 +539,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
     const placedMeshToId = new Map<THREE.Object3D, string>();
     let placementGhost: THREE.Object3D | null = null;
     let placementPreset: Partial<PlacedObject> | null = null;
+    let placementHitboxes: HitboxDef[] = [];
     let currentSelectedId: string | null = null;
     let selectionBox: THREE.Box3Helper | null = null;
 
@@ -757,6 +780,7 @@ function applyMap(map: MapConfig, ) {
         hitboxOffsetZ: rawData.hitboxOffsetZ ?? 0,
       };
       const root = await loadGltfCached(data.url);
+      hideHitboxGroup(root);
       applyPlacedTransform(data, root);
       root.traverse((child) => {
         if (child instanceof THREE.Mesh) { child.castShadow = true; child.receiveShadow = true; }
@@ -787,8 +811,13 @@ function applyMap(map: MapConfig, ) {
       if (placementGhost) { scene.remove(placementGhost); placementGhost = null; }
       placementUrlRef.current = url;
       placementPreset = preset ?? null;
+      placementHitboxes = preset?.hitboxes ?? [];
       setInPlacementMode(true);
       loadGltfCached(url).then((root) => {
+        // Extract hitboxes BEFORE applying scale/rotation so offsets are in model-local space
+        if (!preset?.hitboxes) {
+          placementHitboxes = extractHitboxes(root);
+        }
         root.traverse((child) => {
           if (child instanceof THREE.Mesh) {
             const mat = Array.isArray(child.material)
@@ -809,6 +838,7 @@ function applyMap(map: MapConfig, ) {
       placementUrlRef.current = null;
       placementStoreItemIdRef.current = null;
       placementPreset = null;
+      placementHitboxes = [];
       setInPlacementMode(false);
       renderer.domElement.focus();
     }
@@ -827,6 +857,7 @@ function applyMap(map: MapConfig, ) {
         hitboxRadius:  placementPreset?.hitboxRadius  ?? 1.0,
         hitboxOffsetX: placementPreset?.hitboxOffsetX ?? 0,
         hitboxOffsetZ: placementPreset?.hitboxOffsetZ ?? 0,
+        hitboxes:      placementHitboxes.length > 0 ? placementHitboxes : undefined,
       };
       if (storeItemId) {
         ws.send(JSON.stringify({ type: "placeStoreItem", itemId: storeItemId, ...shared } satisfies ClientMessage));
@@ -1609,6 +1640,8 @@ function applyMap(map: MapConfig, ) {
         onChatSubmit={submitChat}
         onBakeMap={handleBakeMap}
         onFileSelected={handleFileSelected}
+        onOpenStore={() => setStoreOpen(true)}
+        onOpenInventory={currentMapId === `home_${userId}` ? () => setInventoryOpen(true) : null}
       />
 
       <HUDProfile xp={xp} currency={currency} level={level} />
@@ -1647,9 +1680,10 @@ function applyMap(map: MapConfig, ) {
 
       {currentMapId === `home_${userId}` && (
         <InventoryPicker
+          open={inventoryOpen}
+          onClose={() => setInventoryOpen(false)}
           refreshKey={inventoryRefreshKey}
-          onSelectItem={(item) => enterStoreItemPlacementModeRef.current?.(item)}
-          onOpenStore={() => setStoreOpen(true)}
+          onSelectItem={(item) => { enterStoreItemPlacementModeRef.current?.(item); setInventoryOpen(false); }}
         />
       )}
     </div>

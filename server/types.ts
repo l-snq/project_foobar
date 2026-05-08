@@ -62,6 +62,16 @@ export interface MapConfig {
   waterZones: WaterZone[];
 }
 
+// One collider shape extracted from GLTF "hitbox" group geometry.
+// Offsets are in model-local space at scale=1, rotY=0.
+export interface HitboxDef {
+  shape: "box" | "cylinder";
+  offsetX: number;
+  offsetZ: number;
+  halfW: number; // box: x half-extent; cylinder: radius
+  halfD: number; // box: z half-extent; unused for cylinder
+}
+
 export interface PlacedObject {
   id: string;
   url: string;        // e.g. "/uploads/uuid.glb"
@@ -74,6 +84,9 @@ export interface PlacedObject {
   hitboxRadius: number; // circle radius, or half-extent of square box
   hitboxOffsetX: number;
   hitboxOffsetZ: number;
+  // When present, overrides hitboxShape/hitboxRadius with per-mesh shapes
+  // extracted from the GLTF "hitbox" group at placement time.
+  hitboxes?: HitboxDef[];
 }
 
 export interface PlayerState {
@@ -110,11 +123,11 @@ export type ClientMessage =
   | { type: "reload" }
   | { type: "chat"; text: string }
   | { type: "requestMapChange"; targetMapId: string }
-  | { type: "placeObject"; url: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number }
-  | { type: "moveObject"; id: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number }
+  | { type: "placeObject"; url: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number; hitboxes?: HitboxDef[] }
+  | { type: "moveObject"; id: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number; hitboxes?: HitboxDef[] }
   | { type: "deleteObject"; id: string }
   | { type: "bakeMap" }
-  | { type: "placeStoreItem"; itemId: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number }
+  | { type: "placeStoreItem"; itemId: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number; hitboxes?: HitboxDef[] }
   | { type: "refreshInventory" }
 
 export interface ScoreEntry {

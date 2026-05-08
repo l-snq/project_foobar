@@ -63,6 +63,8 @@ export interface GameHUDProps {
   onChatSubmit: () => void;
   onBakeMap: () => void;
   onFileSelected: (file: File) => Promise<void>;
+  onOpenStore: () => void;
+  onOpenInventory: (() => void) | null;
 }
 
 export default function GameHUD({
@@ -77,6 +79,7 @@ export default function GameHUD({
   setSelectedObjScale, setSelectedObjRotY, setSelectedObjHitboxShape,
   setSelectedObjHitboxRadius, setSelectedObjHitboxOffsetX, setSelectedObjHitboxOffsetZ,
   setChatInput, setChatOpen, onChatSubmit, onBakeMap, onFileSelected,
+  onOpenStore, onOpenInventory,
 }: GameHUDProps) {
   const healthPct = Math.max(0, health / maxHealth);
 
@@ -620,19 +623,49 @@ export default function GameHUD({
             }}
           />
           {!chatOpen && (
-            <button
-              className="px-3 py-1.5 rounded-xl text-xs pointer-events-auto relative overflow-hidden"
-              style={{
-                background: "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(60,180,100,0.1) 100%)",
-                border: "1px solid rgba(80,220,120,0.35)",
-                backdropFilter: "blur(10px)",
-                color: "rgba(200,255,220,0.8)",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
-              }}
-              onClick={() => { setChatOpen(true); setTimeout(() => chatInputRef.current?.focus(), 0); }}
-            >
-              Chat [T]
-            </button>
+            <>
+              <button
+                className="px-3 py-1.5 rounded-xl text-xs pointer-events-auto relative overflow-hidden"
+                style={{
+                  background: "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(60,180,100,0.1) 100%)",
+                  border: "1px solid rgba(80,220,120,0.35)",
+                  backdropFilter: "blur(10px)",
+                  color: "rgba(200,255,220,0.8)",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
+                }}
+                onClick={() => { setChatOpen(true); setTimeout(() => chatInputRef.current?.focus(), 0); }}
+              >
+                Chat [T]
+              </button>
+              <button
+                className="px-3 py-1.5 rounded-xl text-xs pointer-events-auto relative overflow-hidden"
+                style={{
+                  background: "linear-gradient(180deg, rgba(255,220,80,0.18) 0%, rgba(180,120,0,0.12) 100%)",
+                  border: "1px solid rgba(255,200,60,0.35)",
+                  backdropFilter: "blur(10px)",
+                  color: "rgba(255,225,120,0.9)",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2)",
+                }}
+                onClick={onOpenStore}
+              >
+                Store [B]
+              </button>
+              {onOpenInventory && (
+                <button
+                  className="px-3 py-1.5 rounded-xl text-xs pointer-events-auto relative overflow-hidden"
+                  style={{
+                    background: "linear-gradient(180deg, rgba(120,180,255,0.18) 0%, rgba(40,80,200,0.12) 100%)",
+                    border: "1px solid rgba(120,180,255,0.35)",
+                    backdropFilter: "blur(10px)",
+                    color: "rgba(180,210,255,0.9)",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2)",
+                  }}
+                  onClick={onOpenInventory}
+                >
+                  Inventory
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
