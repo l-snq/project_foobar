@@ -65,6 +65,8 @@ export interface GameHUDProps {
   onFileSelected: (file: File) => Promise<void>;
   onOpenStore: () => void;
   onOpenInventory: (() => void) | null;
+  isAdmin: boolean;
+  isHomeRoom: boolean;
 }
 
 export default function GameHUD({
@@ -79,7 +81,7 @@ export default function GameHUD({
   setSelectedObjScale, setSelectedObjRotY, setSelectedObjHitboxShape,
   setSelectedObjHitboxRadius, setSelectedObjHitboxOffsetX, setSelectedObjHitboxOffsetZ,
   setChatInput, setChatOpen, onChatSubmit, onBakeMap, onFileSelected,
-  onOpenStore, onOpenInventory,
+  onOpenStore, onOpenInventory, isAdmin, isHomeRoom,
 }: GameHUDProps) {
   const healthPct = Math.max(0, health / maxHealth);
 
@@ -376,37 +378,41 @@ export default function GameHUD({
           </div>
         ) : (
           <div className="flex flex-col items-end gap-2">
-            <button
-              className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden disabled:opacity-50"
-              style={{
-                background: "linear-gradient(160deg, rgba(255,255,255,0.15) 0%, rgba(60,180,100,0.1) 100%)",
-                border: "1px solid rgba(80,220,120,0.35)",
-                backdropFilter: "blur(10px)",
-                color: "rgba(200,255,220,0.9)",
-                boxShadow: "0 2px 10px rgba(0,160,60,0.25), inset 0 1px 0 rgba(255,255,255,0.25)",
-              }}
-              disabled={isUploading}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
-                style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 100%)" }} />
-              <span className="relative">{isUploading ? "Uploading…" : "Import Model"}</span>
-            </button>
-            <button
-              className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden"
-              style={{
-                background: "linear-gradient(160deg, rgba(255,220,80,0.18) 0%, rgba(180,120,0,0.12) 100%)",
-                border: "1px solid rgba(255,200,60,0.4)",
-                backdropFilter: "blur(10px)",
-                color: "rgba(255,230,120,0.95)",
-                boxShadow: "0 2px 10px rgba(200,140,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2)",
-              }}
-              onClick={onBakeMap}
-            >
-              <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
-                style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, transparent 100%)" }} />
-              <span className="relative">Bake to Map</span>
-            </button>
+            {isAdmin && (
+              <button
+                className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden disabled:opacity-50"
+                style={{
+                  background: "linear-gradient(160deg, rgba(255,255,255,0.15) 0%, rgba(60,180,100,0.1) 100%)",
+                  border: "1px solid rgba(80,220,120,0.35)",
+                  backdropFilter: "blur(10px)",
+                  color: "rgba(200,255,220,0.9)",
+                  boxShadow: "0 2px 10px rgba(0,160,60,0.25), inset 0 1px 0 rgba(255,255,255,0.25)",
+                }}
+                disabled={isUploading}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
+                  style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 100%)" }} />
+                <span className="relative">{isUploading ? "Uploading…" : "Import Model"}</span>
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden"
+                style={{
+                  background: "linear-gradient(160deg, rgba(255,220,80,0.18) 0%, rgba(180,120,0,0.12) 100%)",
+                  border: "1px solid rgba(255,200,60,0.4)",
+                  backdropFilter: "blur(10px)",
+                  color: "rgba(255,230,120,0.95)",
+                  boxShadow: "0 2px 10px rgba(200,140,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2)",
+                }}
+                onClick={onBakeMap}
+              >
+                <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
+                  style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, transparent 100%)" }} />
+                <span className="relative">Bake to Map</span>
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -1642,6 +1642,8 @@ function applyMap(map: MapConfig, ) {
         onFileSelected={handleFileSelected}
         onOpenStore={() => setStoreOpen(true)}
         onOpenInventory={currentMapId === `home_${userId}` ? () => setInventoryOpen(true) : null}
+        isAdmin={new Set((process.env.NEXT_PUBLIC_ADMIN_USER_IDS ?? "").split(",").filter(Boolean)).has(userId)}
+        isHomeRoom={currentMapId === `home_${userId}`}
       />
 
       <HUDProfile xp={xp} currency={currency} level={level} />

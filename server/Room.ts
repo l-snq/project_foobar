@@ -15,6 +15,10 @@ import {
 } from "./xp";
 import { RoomPhysics, PLAYER_RADIUS } from "./physics";
 
+const ADMIN_USER_IDS = new Set(
+  (process.env.ADMIN_USER_IDS ?? "").split(",").filter(Boolean),
+);
+
 const TICK_RATE = 20;
 const TICK_MS = 1000 / TICK_RATE;
 const DOOR_GRACE_TICKS = 40; // ~2 s of protection after joining
@@ -390,6 +394,7 @@ export class Room {
     }
 
     if (msg.type === "bakeMap") {
+      if (!client.userId || !ADMIN_USER_IDS.has(client.userId)) return;
       const newStatics = [
         ...this.map.staticObjects,
         ...Array.from(this.placedObjects.values()).map((obj) => ({
