@@ -27,6 +27,7 @@ export interface GameHUDProps {
 
   // Placement / objects
   inPlacementMode: boolean;
+  inEditMode: boolean;
   isUploading: boolean;
   selectedObjId: string | null;
   selectedObjScale: number;
@@ -67,7 +68,7 @@ export interface GameHUDProps {
 export default function GameHUD({
   cursorPos, health, maxHealth, onRampage, weapon, ammo, isReloading, isDead,
   showHitFlash, showScoreboard, scores, myIdRef, rampageAnnouncement, emoteWheelOpen,
-  inPlacementMode, isUploading, selectedObjId,
+  inPlacementMode, inEditMode, isUploading, selectedObjId,
   selectedObjScale, selectedObjRotY, selectedObjHitboxShape, selectedObjHitboxRadius,
   selectedObjHitboxOffsetX, selectedObjHitboxOffsetZ,
   chatOpen, chatMessages, chatInput,
@@ -421,8 +422,25 @@ export default function GameHUD({
         }}
       />
 
+      {/* Edit mode badge */}
+      {inEditMode && (
+        <div
+          className="absolute top-4 left-1/2 -translate-x-1/2 px-5 py-2 rounded-full text-sm font-bold tracking-widest uppercase pointer-events-none"
+          style={{
+            background: "linear-gradient(160deg, rgba(255,180,0,0.25) 0%, rgba(200,100,0,0.2) 100%)",
+            border: "1px solid rgba(255,180,0,0.5)",
+            backdropFilter: "blur(12px)",
+            color: "#ffe080",
+            textShadow: "0 0 10px rgba(255,160,0,0.6)",
+            boxShadow: "0 0 20px rgba(255,140,0,0.25)",
+          }}
+        >
+          Edit Mode · Click to select · Drag gizmo to move · Del to delete · 2 to exit
+        </div>
+      )}
+
       {/* Object selection panel */}
-      {selectedObjId && (
+      {inEditMode && selectedObjId && (
         <div
           className="absolute top-1/2 right-4 -translate-y-1/2 flex flex-col gap-3 p-4 rounded-2xl w-52 pointer-events-auto overflow-hidden"
           style={{

@@ -16,16 +16,13 @@ import { buildGround, makeNameLabel, makeGhost, isOccluded, makeProjectileLine }
 import { updateLocalPlayer } from "./GameLoopUtils";
 import { Game } from "./GameManager";
 import type { StoreItem } from "../server/types";
+import { LocalCharacter } from "./LocalCharacter";
+import type { GltfTemplate } from "./LocalCharacter";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "ws://localhost:3001";
 const LERP_FACTOR = 0.2;
 const MAX_HEALTH = 100;
 const BULLET_LENGTH = 0.6; // world units
-
-interface GltfTemplate {
-  scene: THREE.Group;
-  animations: THREE.AnimationClip[];
-}
 
 interface RemotePlayer {
   rootUnarmed: THREE.Object3D;
@@ -100,9 +97,11 @@ export default function GameCanvas({ playerName, userId }: Props) {
   const [storeOpen, setStoreOpen] = useState(false);
   const [levelUpMsg, setLevelUpMsg] = useState<string | null>(null);
   const [inventoryRefreshKey, setInventoryRefreshKey] = useState(0);
+  const [inEditMode, setInEditMode] = useState(false);
 
   const placementStoreItemIdRef = useRef<string | null>(null);
   const enterStoreItemPlacementModeRef = useRef<((item: StoreItem) => void) | null>(null);
+  const inEditModeRef = useRef(false);
 
   const chatIdRef = useRef(0);
   const chatInputRef = useRef<HTMLInputElement>(null);
@@ -226,19 +225,17 @@ export default function GameCanvas({ playerName, userId }: Props) {
     // ---- Reload ----
     function triggerReload() {
       if (isReloadingRef.current) return;
-      if (!reloadAction || !walkPistol || !mixerPistol) return;
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
-      isReloadingRef.current = true;
-      setIsReloading(true);
-      ws.send(JSON.stringify({ type: "reload" } satisfies ClientMessage));
-
-      walkPistol.setEffectiveWeight(0);
-      walkPistol.paused = true;
-      reloadAction.reset();
-      reloadAction.setEffectiveWeight(1);
-      reloadAction.play();
+      const started = character.triggerReload(() => {
+        isReloadingRef.current = false;
+        setIsReloading(false);
+      });
+      if (started) {
+        isReloadingRef.current = true;
+        setIsReloading(true);
+        ws.send(JSON.stringify({ type: "reload" } satisfies ClientMessage));
+      }
     }
 
     // ---- Debug wireframes ----
@@ -355,6 +352,15 @@ export default function GameCanvas({ playerName, userId }: Props) {
         setStoreOpen((v) => !v);
         return;
       }
+      if (e.key === "2" && !rHeld) {
+        if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+        if (currentMapId !== `home_${userId}`) return;
+        const next = !inEditModeRef.current;
+        inEditModeRef.current = next;
+        setInEditMode(next);
+        if (!next) { selectObject(null); }
+        return;
+      }
       if (e.key === "t" || e.key === "T") {
         if ((e.target as HTMLElement)?.tagName === "INPUT") return;
         e.preventDefault();
@@ -367,6 +373,14 @@ export default function GameCanvas({ playerName, userId }: Props) {
       // Escape — cancel placement mode
       if (e.key === "Escape") {
         if (placementUrlRef.current) { e.preventDefault(); exitPlacementMode(); }
+        return;
+      }
+
+      // Delete/Backspace — delete selected object in edit mode
+      if ((e.key === "Delete" || e.key === "Backspace") && inEditModeRef.current && currentSelectedId) {
+        e.preventDefault();
+        deleteObjRef.current?.(currentSelectedId);
+        selectObject(null);
         return;
       }
 
@@ -390,26 +404,12 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
       // Emote selection while holding R
       if (rHeld && weaponRef.current !== "pistol") {
-        if (k === "1" && !currentEmote && danceAction && walkUnarmed && mixerUnarmed) {
-          currentEmote = "dance";
-          rHeld = false;
-          setEmoteWheelOpen(false);
-          walkUnarmed.setEffectiveWeight(0);
-          walkUnarmed.paused = true;
-          danceAction.reset();
-          danceAction.setEffectiveWeight(1);
-          danceAction.play();
+        if (k === "1") {
+          if (character.triggerEmote("dance")) { rHeld = false; setEmoteWheelOpen(false); }
           return;
         }
-        if (k === "2" && !currentEmote && breakdanceAction && walkUnarmed && mixerUnarmed) {
-          currentEmote = "breakdance";
-          rHeld = false;
-          setEmoteWheelOpen(false);
-          walkUnarmed.setEffectiveWeight(0);
-          walkUnarmed.paused = true;
-          breakdanceAction.reset();
-          breakdanceAction.setEffectiveWeight(1);
-          breakdanceAction.play();
+        if (k === "2") {
+          if (character.triggerEmote("breakdance")) { rHeld = false; setEmoteWheelOpen(false); }
           return;
         }
       }
@@ -422,7 +422,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
       if (k === "r") {
         if (weaponRef.current === "pistol") {
           triggerReload();
-        } else if (!currentEmote) {
+        } else if (!character.currentEmote) {
           rHeld = true;
           setEmoteWheelOpen(true);
         }
@@ -474,18 +474,17 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
       raycaster.setFromCamera(mouse, camera);
 
-      // Try to select a placed object
-      const placedMeshList = Array.from(placedMeshToId.keys());
-      if (placedMeshList.length > 0) {
-        const hits = raycaster.intersectObjects(placedMeshList, false);
+      if (inEditModeRef.current) {
+        // Edit mode — click to select (gizmo handles translation), click ground to deselect
+        const placedMeshList = Array.from(placedMeshToId.keys());
+        const hits = placedMeshList.length > 0 ? raycaster.intersectObjects(placedMeshList, false) : [];
         if (hits.length > 0) {
           const hitId = placedMeshToId.get(hits[0].object);
           if (hitId) { selectObject(hitId); return; }
         }
+        if (currentSelectedId) selectObject(null);
+        return;
       }
-
-      // Deselect on ground click
-      if (currentSelectedId) { selectObject(null); }
 
       // Shoot
       if (weaponRef.current !== "pistol") return;
@@ -494,35 +493,18 @@ export default function GameCanvas({ playerName, userId }: Props) {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const hit = new THREE.Vector3();
       if (!raycaster.ray.intersectPlane(groundPlane, hit)) return;
-      if (!characterRoot) return;
-      const dx = hit.x - characterRoot.position.x;
-      const dz = hit.z - characterRoot.position.z;
+      if (!character.root) return;
+      const dx = hit.x - character.root.position.x;
+      const dz = hit.z - character.root.position.z;
       const len = Math.sqrt(dx * dx + dz * dz);
       if (len < 0.001) return;
       ws.send(JSON.stringify({ type: "shoot", dirX: dx / len, dirZ: dz / len } satisfies ClientMessage));
     }
     window.addEventListener("mousedown", onMouseDown);
 
-    // ---- GLTF templates ----
-    let tplUnarmed: GltfTemplate | null = null;
-    let tplPistol: GltfTemplate | null = null;
-
-    // Local player roots (one per model, swap visible)
-    let localUnarmed: THREE.Object3D | null = null;
-    let localPistol: THREE.Object3D | null = null;
-    let mixerUnarmed: THREE.AnimationMixer | null = null;
-    let mixerPistol: THREE.AnimationMixer | null = null;
-    let walkUnarmed: THREE.AnimationAction | null = null;
-    let walkPistol: THREE.AnimationAction | null = null;
-    let danceAction: THREE.AnimationAction | null = null;
-    let breakdanceAction: THREE.AnimationAction | null = null;
-    let reloadAction: THREE.AnimationAction | null = null;
-    let currentEmote: string | null = null;
+    // ---- Local character ----
+    const character = new LocalCharacter(scene, playerName);
     let rHeld = false;
-    let localDead = false;
-    let localGhostUnarmed: THREE.Mesh | null = null;
-    let localGhostPistol: THREE.Mesh | null = null;
-    let characterRoot: THREE.Object3D | null = null; // points to whichever model is active
 
     const serverPos = new THREE.Vector3();
     let myId: string | null = null;
@@ -545,107 +527,11 @@ export default function GameCanvas({ playerName, userId }: Props) {
     // Clipboard for Ctrl+C / Ctrl+V
     let clipboardObj: PlacedObject | null = null;
 
-    let loadedCount = 0;
-    function onBothLoaded() {
-      // Called once both GLTFs are ready
-      for (const p of pendingRemoteStates) applyRemoteState(p);
-      pendingRemoteStates.length = 0;
-    }
-
     const loader = new GLTFLoader();
 
-    loader.load("/lilguy.gltf", (gltf) => {
-      tplUnarmed = { scene: gltf.scene.clone(true), animations: gltf.animations };
-
-      const model = gltf.scene;
-      model.scale.setScalar(0.48);
-      model.visible = true;
-      model.traverse((child) => { if (child instanceof THREE.Mesh) child.castShadow = true; });
-      scene.add(model);
-      localUnarmed = model;
-      characterRoot = model;
-
-      const localLabel = makeNameLabel(playerName, true);
-      model.add(localLabel);
-      localGhostUnarmed = makeGhost();
-      model.add(localGhostUnarmed);
-
-      mixerUnarmed = new THREE.AnimationMixer(model);
-      if (gltf.animations.length > 0) {
-        walkUnarmed = mixerUnarmed.clipAction(gltf.animations[0]);
-        walkUnarmed.setLoop(THREE.LoopRepeat, Infinity);
-        walkUnarmed.play();
-        walkUnarmed.paused = true;
-        walkUnarmed.setEffectiveWeight(0);
-      }
-      const danceClip = gltf.animations.find((a) => a.name === "dance");
-      const breakdanceClip = gltf.animations.find((a) => a.name === "Breakdance");
-      if (mixerUnarmed) {
-        if (danceClip) {
-          danceAction = mixerUnarmed.clipAction(danceClip);
-          danceAction.setLoop(THREE.LoopOnce, 1);
-          danceAction.clampWhenFinished = true;
-          danceAction.setEffectiveWeight(0);
-        }
-        if (breakdanceClip) {
-          breakdanceAction = mixerUnarmed.clipAction(breakdanceClip);
-          breakdanceAction.setLoop(THREE.LoopRepeat, Infinity);
-          breakdanceAction.setEffectiveWeight(0);
-        }
-        mixerUnarmed.addEventListener("finished", (e) => {
-          if (e.action === danceAction || e.action === breakdanceAction) {
-            currentEmote = null;
-            (e.action as THREE.AnimationAction).setEffectiveWeight(0);
-            (e.action as THREE.AnimationAction).stop();
-            if (walkUnarmed) {
-              walkUnarmed.paused = true;
-              walkUnarmed.setEffectiveWeight(0);
-            }
-          }
-        });
-      }
-
-      if (++loadedCount === 2) onBothLoaded();
-    });
-
-    loader.load("/lilguy_holding_pistol.gltf", (gltf) => {
-      tplPistol = { scene: gltf.scene.clone(true), animations: gltf.animations };
-
-      const model = gltf.scene;
-      model.scale.setScalar(0.48);
-      model.visible = false; // hidden until player presses 1
-      model.traverse((child) => { if (child instanceof THREE.Mesh) child.castShadow = true; });
-      scene.add(model);
-      localPistol = model;
-      model.add(makeNameLabel(playerName, true));
-      localGhostPistol = makeGhost();
-      model.add(localGhostPistol);
-
-      mixerPistol = new THREE.AnimationMixer(model);
-      if (gltf.animations.length > 0) {
-        walkPistol = mixerPistol.clipAction(gltf.animations[0]);
-        walkPistol.setLoop(THREE.LoopRepeat, Infinity);
-        walkPistol.play();
-        walkPistol.paused = true;
-        walkPistol.setEffectiveWeight(0);
-      }
-      const reloadClip = gltf.animations.find((a) => a.name === "reload");
-      if (reloadClip && mixerPistol) {
-        reloadAction = mixerPistol.clipAction(reloadClip);
-        reloadAction.setLoop(THREE.LoopOnce, 1);
-        reloadAction.clampWhenFinished = true;
-        reloadAction.setEffectiveWeight(0);
-        mixerPistol.addEventListener("finished", (e) => {
-          if (e.action === reloadAction) {
-            reloadAction!.setEffectiveWeight(0);
-            reloadAction!.stop();
-            isReloadingRef.current = false;
-            setIsReloading(false);
-          }
-        });
-      }
-
-      if (++loadedCount === 2) onBothLoaded();
+    character.load(() => {
+      for (const p of pendingRemoteStates) applyRemoteState(p);
+      pendingRemoteStates.length = 0;
     });
 
     // Static objects are spawned by applyMap when the server sends the map config.
@@ -1007,7 +893,7 @@ function applyMap(map: MapConfig, ) {
     const remotePlayers = new Map<string, RemotePlayer>();
 
     function spawnRemote(id: string, state: PlayerState) {
-      if (!tplUnarmed || !tplPistol) return;
+      if (!character.tplUnarmed || !character.tplPistol) return;
 
       function makeRemoteModel(tpl: GltfTemplate, visible: boolean): {
         root: THREE.Object3D;
@@ -1034,8 +920,8 @@ function applyMap(map: MapConfig, ) {
         return { root: model, mixer: mx, walkAction: action };
       }
 
-      const unarmed = makeRemoteModel(tplUnarmed, state.weapon !== "pistol");
-      const pistol = makeRemoteModel(tplPistol, state.weapon === "pistol");
+      const unarmed = makeRemoteModel(character.tplUnarmed!, state.weapon !== "pistol");
+      const pistol = makeRemoteModel(character.tplPistol!, state.weapon === "pistol");
 
       const label = makeNameLabel(state.name);
       unarmed.root.add(label);
@@ -1044,8 +930,8 @@ function applyMap(map: MapConfig, ) {
       // Set up emote actions on the unarmed mixer
       let remoteDanceAction: THREE.AnimationAction | null = null;
       let remoteBreakdanceAction: THREE.AnimationAction | null = null;
-      const remDanceClip = tplUnarmed.animations.find((a) => a.name === "dance");
-      const remBreakdanceClip = tplUnarmed.animations.find((a) => a.name === "Breakdance");
+      const remDanceClip = character.tplUnarmed!.animations.find((a) => a.name === "dance");
+      const remBreakdanceClip = character.tplUnarmed!.animations.find((a) => a.name === "Breakdance");
       if (remDanceClip) {
         remoteDanceAction = unarmed.mixer.clipAction(remDanceClip.clone());
         remoteDanceAction.setLoop(THREE.LoopOnce, 1);
@@ -1068,7 +954,7 @@ function applyMap(map: MapConfig, ) {
 
       // Set up reload on the pistol mixer
       let remoteReloadAction: THREE.AnimationAction | null = null;
-      const reloadClip = tplPistol.animations.find((a) => a.name === "reload");
+      const reloadClip = character.tplPistol!.animations.find((a) => a.name === "reload");
       if (reloadClip) {
         remoteReloadAction = pistol.mixer.clipAction(reloadClip.clone());
         remoteReloadAction.setLoop(THREE.LoopOnce, 1);
@@ -1236,7 +1122,7 @@ function applyMap(map: MapConfig, ) {
             setAmmo(p.ammo);
             if (!p.reloading && isReloadingRef.current === false) setIsReloading(false);
           } else {
-            if (tplUnarmed && tplPistol) {
+            if (character.tplUnarmed && character.tplPistol) {
               applyRemoteState(p);
             } else {
               const existing = pendingRemoteStates.findIndex((s) => s.id === p.id);
@@ -1262,19 +1148,16 @@ function applyMap(map: MapConfig, ) {
 
       if (msg.type === "died") {
         if (msg.targetId === myId) {
-          if (characterRoot) spawnExplosion(characterRoot.position.x, characterRoot.position.y, characterRoot.position.z);
-          localDead = true;
-          if (localUnarmed) localUnarmed.visible = false;
-          if (localPistol) localPistol.visible = false;
+          if (character.root) spawnExplosion(character.root.position.x, character.root.position.y, character.root.position.z);
+          character.setDead();
           setIsDead(true);
           setHealth(0);
           setOnRampage(false);
           setTimeout(() => {
-            localDead = false;
+            character.setAlive(0, 0);
             setIsDead(false);
             setHealth(MAX_HEALTH);
             setMaxHealth(MAX_HEALTH);
-            if (characterRoot) characterRoot.position.set(0, 0, 0);
             serverPos.set(0, 0, 0);
             if (rapierPlayerBody) rapierPlayerBody.setNextKinematicTranslation({ x: 0, y: 0, z: 0 });
           }, 3000);
@@ -1365,7 +1248,7 @@ function applyMap(map: MapConfig, ) {
       ws.send(JSON.stringify({
         type: "input", x: inputX, z: inputZ, rotY,
         weapon: weaponRef.current,
-        emote: currentEmote,
+        emote: character.currentEmote,
       } satisfies ClientMessage));
     }
 
@@ -1382,22 +1265,7 @@ function applyMap(map: MapConfig, ) {
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
 
-      // Weapon model swap for local player
       const currentWeapon = weaponRef.current;
-      if (localUnarmed && localPistol) {
-        const wantPistol = currentWeapon === "pistol";
-        localUnarmed.visible = !localDead && !wantPistol;
-        localPistol.visible = !localDead && wantPistol;
-        characterRoot = wantPistol ? localPistol : localUnarmed;
-        // Keep both roots at the same position
-        if (localUnarmed.visible === false && localPistol) {
-          localPistol.position.copy(localUnarmed.position);
-          localPistol.rotation.copy(localUnarmed.rotation);
-        } else if (localPistol.visible === false && localUnarmed) {
-          localUnarmed.position.copy(localPistol.position);
-          localUnarmed.rotation.copy(localPistol.rotation);
-        }
-      }
 
       const input = new THREE.Vector3(
         (keys.d ? 1 : 0) - (keys.a ? 1 : 0),
@@ -1407,15 +1275,15 @@ function applyMap(map: MapConfig, ) {
       if (input.lengthSq() > 1) input.normalize();
       input.applyAxisAngle(new THREE.Vector3(0, 1, 0), camera.rotation.y);
 
-      let rotY = characterRoot?.rotation.y ?? 0;
-      if (characterRoot) {
+      let rotY = character.root?.rotation.y ?? 0;
+      if (character.root) {
         Game.raycaster.setFromCamera(Game.mouse, camera);
         if (raycaster.ray.intersectPlane(groundPlane, groundHit)) {
-          const dx = groundHit.x - characterRoot.position.x;
-          const dz = groundHit.z - characterRoot.position.z;
+          const dx = groundHit.x - character.root.position.x;
+          const dz = groundHit.z - character.root.position.z;
           if (dx * dx + dz * dz > 0.01) {
             rotY = Math.atan2(dx, dz);
-            characterRoot.rotation.y = rotY;
+            character.root.rotation.y = rotY;
           }
         }
       }
@@ -1427,14 +1295,13 @@ function applyMap(map: MapConfig, ) {
       }
 
       const SPEED = 4;
-      if (characterRoot) {
+      const root = character.root;
+      if (root) {
         if (rapierController && rapierPlayerBody && rapierPlayerCollider && rapierWorld) {
-          // Sync Rapier body to current Three.js position so server corrections carry over
           const rp = rapierPlayerBody.translation();
-          if (Math.abs(rp.x - characterRoot.position.x) > 0.001 || Math.abs(rp.z - characterRoot.position.z) > 0.001) {
-            rapierPlayerBody.setNextKinematicTranslation({ x: characterRoot.position.x, y: 0, z: characterRoot.position.z });
+          if (Math.abs(rp.x - root.position.x) > 0.001 || Math.abs(rp.z - root.position.z) > 0.001) {
+            rapierPlayerBody.setNextKinematicTranslation({ x: root.position.x, y: 0, z: root.position.z });
           }
-          // Compute collision-aware movement
           const desired = { x: input.x * SPEED * dt, y: 0, z: input.z * SPEED * dt };
           rapierController.computeColliderMovement(rapierPlayerCollider, desired);
           const mv = rapierController.computedMovement();
@@ -1446,62 +1313,28 @@ function applyMap(map: MapConfig, ) {
           });
           rapierWorld.step();
           const np = rapierPlayerBody.translation();
-          characterRoot.position.x = np.x;
-          characterRoot.position.z = np.z;
+          root.position.x = np.x;
+          root.position.z = np.z;
         } else {
-          // Fallback before Rapier is ready: simple movement
           if (input.lengthSq() > 0) {
-            characterRoot.position.x += input.x * SPEED * dt;
-            characterRoot.position.z += input.z * SPEED * dt;
+            root.position.x += input.x * SPEED * dt;
+            root.position.z += input.z * SPEED * dt;
           }
         }
-        // Server correction (lerp toward authoritative position; Y handles water depth)
-        characterRoot.position.x += (serverPos.x - characterRoot.position.x) * 0.1;
-        characterRoot.position.y += (serverPos.y - characterRoot.position.y) * 0.1;
-        characterRoot.position.z += (serverPos.z - characterRoot.position.z) * 0.1;
+        root.position.x += (serverPos.x - root.position.x) * 0.1;
+        root.position.y += (serverPos.y - root.position.y) * 0.1;
+        root.position.z += (serverPos.z - root.position.z) * 0.1;
       }
 
-      // Sync inactive local model position so the swap is seamless
-      if (localUnarmed && localPistol) {
-        const active = characterRoot!;
-        const inactive = active === localUnarmed ? localPistol : localUnarmed;
-        inactive.position.copy(active.position);
-        inactive.rotation.copy(active.rotation);
-      }
-
-      // Local player occlusion ghost
-      if (characterRoot && !localDead) {
-        const worldPos = new THREE.Vector3();
-        characterRoot.getWorldPosition(worldPos);
-        const occluded = isOccluded(camera, worldPos);
-        if (localGhostUnarmed) localGhostUnarmed.visible = occluded && weaponRef.current !== "pistol";
-        if (localGhostPistol) localGhostPistol.visible = occluded && weaponRef.current === "pistol";
-      } else {
-        if (localGhostUnarmed) localGhostUnarmed.visible = false;
-        if (localGhostPistol) localGhostPistol.visible = false;
-      }
-
-      // Walk / dance / reload animation — drive whichever local model is active
       const isMoving = input.lengthSq() > 0;
-      if (currentEmote === "breakdance" && isMoving) {
-        currentEmote = null;
-        if (breakdanceAction) { breakdanceAction.setEffectiveWeight(0); breakdanceAction.stop(); }
-        if (walkUnarmed) { walkUnarmed.paused = false; walkUnarmed.setEffectiveWeight(1); }
-      }
-
-      if (currentEmote !== null) {
-        if (mixerUnarmed) mixerUnarmed.update(dt);
-      } else if (isReloadingRef.current && currentWeapon === "pistol") {
-        if (mixerPistol) mixerPistol.update(dt);
-      } else {
-        const activeWalk = currentWeapon === "pistol" ? walkPistol : walkUnarmed;
-        const activeMixer = currentWeapon === "pistol" ? mixerPistol : mixerUnarmed;
-        if (activeWalk) {
-          activeWalk.paused = !isMoving;
-          activeWalk.setEffectiveWeight(isMoving ? 1 : 0);
-        }
-        if (activeMixer) activeMixer.update(dt);
-      }
+      character.update({
+        dt,
+        isMoving,
+        weapon: currentWeapon,
+        inEditMode: inEditModeRef.current,
+        isReloading: isReloadingRef.current,
+        camera,
+      });
 
       // Remote players
       for (const remote of remotePlayers.values()) {
@@ -1602,14 +1435,15 @@ function applyMap(map: MapConfig, ) {
         }
       }
 
+
       // Follow camera
-      if (characterRoot) {
+      if (character.root) {
         const offset = new THREE.Vector3(d, d * 0.816, d);
-        camera.position.copy(characterRoot.position).add(offset);
+        camera.position.copy(character.root.position).add(offset);
         camera.lookAt(
-          characterRoot.position.x,
-          characterRoot.position.y + 0.8,
-          characterRoot.position.z
+          character.root.position.x,
+          character.root.position.y + 0.8,
+          character.root.position.z
         );
       }
 
@@ -1643,8 +1477,7 @@ function applyMap(map: MapConfig, ) {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("resize", onResize);
-      mixerUnarmed?.stopAllAction();
-      mixerPistol?.stopAllAction();
+      character.dispose();
       renderer.dispose();
       for (const remote of remotePlayers.values()) {
         remote.mixerUnarmed.stopAllAction();
@@ -1657,6 +1490,8 @@ function applyMap(map: MapConfig, ) {
       for (const entry of placedObjects.values()) scene.remove(entry.root);
       if (placementGhost) scene.remove(placementGhost);
       if (selectionBox) scene.remove(selectionBox);
+      inEditModeRef.current = false;
+      setInEditMode(false);
       transformControls.detach();
       scene.remove(transformControls.getHelper());
       transformControls.dispose();
@@ -1744,6 +1579,7 @@ function applyMap(map: MapConfig, ) {
         rampageAnnouncement={rampageAnnouncement}
         emoteWheelOpen={emoteWheelOpen}
         inPlacementMode={inPlacementMode}
+        inEditMode={inEditMode}
         isUploading={isUploading}
         selectedObjId={selectedObjId}
         selectedObjScale={selectedObjScale}

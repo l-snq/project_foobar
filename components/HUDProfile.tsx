@@ -17,7 +17,7 @@ export default function HUDProfile({ xp, currency, level }: Props) {
 
   return (
     <div
-      className="absolute top-4 right-4 flex flex-col items-end gap-1.5 pointer-events-none select-none"
+      className="absolute top-4 left-7 flex flex-col items-end gap-1.5 pointer-events-none select-none"
       style={{ minWidth: 140 }}
     >
       {/* Level + currency row */}
