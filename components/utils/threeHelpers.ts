@@ -1,17 +1,53 @@
 import * as THREE from "three";
 import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 
-export function buildGround(size: number, colorHex: number): THREE.Group {
-  const group = new THREE.Group();
+export interface GroundBuildResult {
+  group: THREE.Group;
+  grid: THREE.GridHelper;
+  canvas: HTMLCanvasElement;
+  texture: THREE.CanvasTexture;
+}
+
+export function buildGround(size: number, defaultColor: string, paintData?: string[][]): GroundBuildResult {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+
+  if (paintData && paintData.length > 0) {
+    for (let row = 0; row < paintData.length; row++) {
+      for (let col = 0; col < (paintData[row]?.length ?? 0); col++) {
+        ctx.fillStyle = paintData[row][col];
+        ctx.fillRect(col, row, 1, 1);
+      }
+    }
+  } else {
+    ctx.fillStyle = defaultColor;
+    ctx.fillRect(0, 0, size, size);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+
   const geo = new THREE.PlaneGeometry(size, size);
-  const mat = new THREE.MeshLambertMaterial({ color: colorHex });
+  const mat = new THREE.MeshLambertMaterial({ map: texture });
   const plane = new THREE.Mesh(geo, mat);
   plane.rotation.x = -Math.PI / 2;
+  plane.receiveShadow = true;
+
+  // Grid is always visible at a low opacity; paint mode bumps it up
+  const grid = new THREE.GridHelper(size, size, 0x000000, 0x000000);
+  grid.position.y = 0.01;
+  const gridMats = Array.isArray(grid.material) ? grid.material : [grid.material];
+  for (const m of gridMats) { m.transparent = true; m.opacity = 0.12; }
+
+  const group = new THREE.Group();
   group.add(plane);
-  const grid = new THREE.GridHelper(size, size, 0x2a5d34, 0x2a5d34);
-  grid.position.y = 0.005;
   group.add(grid);
-  return group;
+
+  return { group, grid, canvas, texture };
 }
 
 export function makeNameLabel(name: string, isLocal = false): CSS2DObject {

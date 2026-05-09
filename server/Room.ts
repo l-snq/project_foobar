@@ -39,6 +39,12 @@ const RAMPAGE_DAMAGE_MULT = 2;
 
 export const MAP_DIR = join(process.cwd(), "maps");
 
+export interface PlayerRegistry {
+  register(id: string, ws: WebSocket, name: string): void;
+  unregister(id: string): void;
+  deliver(targetName: string, msg: ServerMessage): boolean;
+}
+
 interface Client {
   id: ClientId;
   ws: WebSocket;
@@ -81,7 +87,7 @@ export class Room {
   private tick = 0;
   private interval: ReturnType<typeof setInterval> | null = null;
 
-  constructor(readonly id: string, mapConfig?: MapConfig, initialPlacedObjects?: PlacedObject[]) {
+  constructor(readonly id: string, mapConfig?: MapConfig, initialPlacedObjects?: PlacedObject[], private readonly registry?: PlayerRegistry) {
     this.isHome = id.startsWith("home_");
     this.ownerUserId = this.isHome ? id.replace("home_", "") : null;
 
@@ -180,6 +186,8 @@ export class Room {
   }
 
   remove(id: ClientId) {
+    if (!this.clients.has(id)) return;
+    this.registry?.unregister(id);
     this.pendingMapChange.delete(id);
     this.clients.delete(id);
     this.states.delete(id);
@@ -204,6 +212,7 @@ export class Room {
       client.userId = msg.userId ?? "";
       client.joined = true;
       client.joinedAtTick = this.tick;
+      this.registry?.register(id, client.ws, name);
       const spawn = this.spawn();
       this.states.set(id, {
         id, name,
@@ -393,6 +402,25 @@ export class Room {
       this.broadcast({ type: "objectDeleted", id: msg.id });
     }
 
+    if (msg.type === "kickPlayer") {
+      if (!this.isHome || client.userId !== this.ownerUserId) return;
+      const target = this.clients.get(msg.targetId);
+      if (!target || target.userId === this.ownerUserId) return;
+      try { target.ws.send(JSON.stringify({ type: "kicked" } satisfies ServerMessage)); } catch { /* already closed */ }
+      this.remove(msg.targetId);
+    }
+
+    if (msg.type === "invitePlayer") {
+      if (!this.isHome || client.userId !== this.ownerUserId) return;
+      const delivered = this.registry?.deliver(
+        msg.targetName.trim(),
+        { type: "inviteReceived", fromOwnerName: client.name, homeRoomId: this.id },
+      );
+      if (!delivered) {
+        client.ws.send(JSON.stringify({ type: "inviteError", reason: `"${msg.targetName}" is not online` } satisfies ServerMessage));
+      }
+    }
+
     if (msg.type === "bakeMap") {
       if (!client.userId || !ADMIN_USER_IDS.has(client.userId)) return;
       const newStatics = [
@@ -405,12 +433,12 @@ export class Room {
           hitboxRadius: obj.hitboxRadius,
         })),
       ];
-      this.map = { ...this.map, staticObjects: newStatics };
+      this.map = { ...this.map, staticObjects: newStatics, groundPaintData: msg.groundPaintData };
       this.placedObjects.clear();
       this.saveMap();
       this.saveObjects();
       this.rebuildPhysicsWorld();
-      this.broadcast({ type: "mapBaked" });
+      this.broadcast({ type: "mapBaked", map: this.map });
       console.log(`[${this.id}] Map baked: ${newStatics.length} static objects`);
     }
   }

@@ -285,6 +285,15 @@
       "rotY": 4.7123889,
       "hitboxShape": "cylinder",
       "hitboxRadius": 0.75
+    },
+    {
+      "url": "/uploads/bc70dbc0-83f9-4aa8-9829-0fbeb94846d1.gltf",
+      "x": -1.2658360910474986,
+      "z": -0.3150241682000505,
+      "rotY": 0,
+      "scale": 1,
+      "hitboxShape": "cylinder",
+      "hitboxRadius": 1
     }
   ]
 }

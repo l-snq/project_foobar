@@ -60,6 +60,7 @@ export interface MapConfig {
   staticObjects: StaticObject[];
   doors: DoorConfig[];
   waterZones: WaterZone[];
+  groundPaintData?: string[][];  // per-tile hex colors, [row][col], dimensions = groundSize × groundSize
 }
 
 // One collider shape extracted from GLTF "hitbox" group geometry.
@@ -126,9 +127,11 @@ export type ClientMessage =
   | { type: "placeObject"; url: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number; hitboxes?: HitboxDef[] }
   | { type: "moveObject"; id: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number; hitboxes?: HitboxDef[] }
   | { type: "deleteObject"; id: string }
-  | { type: "bakeMap" }
+  | { type: "bakeMap"; groundPaintData?: string[][] }
   | { type: "placeStoreItem"; itemId: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number; hitboxes?: HitboxDef[] }
   | { type: "refreshInventory" }
+  | { type: "kickPlayer"; targetId: ClientId }
+  | { type: "invitePlayer"; targetName: string }
 
 export interface ScoreEntry {
   id: ClientId;
@@ -152,6 +155,9 @@ export type ServerMessage =
   | { type: "objectDeleted"; id: string }
   | { type: "changeMap"; targetMapId: string }
   | { type: "mapChangeError"; reason: string }
-  | { type: "mapBaked" }
+  | { type: "mapBaked"; map: MapConfig }
   | { type: "profileSync"; xp: number; currency: number; level: number }
   | { type: "levelUp"; newLevel: number; currencyAwarded: number }
+  | { type: "kicked" }
+  | { type: "inviteReceived"; fromOwnerName: string; homeRoomId: string }
+  | { type: "inviteError"; reason: string }

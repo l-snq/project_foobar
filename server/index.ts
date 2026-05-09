@@ -1,9 +1,10 @@
-import { WebSocketServer } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { Room, MAP_DIR } from "./Room";
+import type { PlayerRegistry } from "./Room";
 import { loadHomeData, insertHome } from "./db";
 import { initStoreCache } from "./storeCache";
 import type { MapConfig } from "./types";
@@ -12,9 +13,26 @@ const PORT = Number(process.env.PORT ?? 3001);
 
 // Initialized once in main() before any Room is constructed
 let rooms: Map<string, Room>;
+
+function makeRegistry(): PlayerRegistry {
+  const players = new Map<string, { ws: WebSocket; name: string }>();
+  return {
+    register(id, ws, name) { players.set(id, { ws, name }); },
+    unregister(id) { players.delete(id); },
+    deliver(targetName, msg) {
+      const lower = targetName.toLowerCase();
+      for (const [, p] of players) {
+        if (p.name.toLowerCase() === lower) {
+          try { p.ws.send(JSON.stringify(msg)); return true; } catch { return false; }
+        }
+      }
+      return false;
+    },
+  };
+}
 const pendingHomeRooms = new Map<string, Promise<Room>>();
 
-async function getOrCreateHomeRoom(userId: string): Promise<Room> {
+async function getOrCreateHomeRoom(userId: string, registry: PlayerRegistry): Promise<Room> {
   const mapId = `home_${userId}`;
   if (rooms.has(mapId)) return rooms.get(mapId)!;
   if (pendingHomeRooms.has(mapId)) return pendingHomeRooms.get(mapId)!;
@@ -23,7 +41,7 @@ async function getOrCreateHomeRoom(userId: string): Promise<Room> {
     const existing = await loadHomeData(userId);
     let room: Room;
     if (existing) {
-      room = new Room(mapId, existing.map, existing.placedObjects);
+      room = new Room(mapId, existing.map, existing.placedObjects, registry);
       console.log(`[home] Loaded home for ${userId}`);
     } else {
       const template = JSON.parse(
@@ -31,7 +49,7 @@ async function getOrCreateHomeRoom(userId: string): Promise<Room> {
       ) as MapConfig;
       const homeMap = { ...template, id: mapId };
       await insertHome(userId, homeMap);
-      room = new Room(mapId, homeMap, []);
+      room = new Room(mapId, homeMap, [], registry);
       console.log(`[home] Created new home for ${userId}`);
     }
     rooms.set(mapId, room);
@@ -59,7 +77,9 @@ async function main() {
     .map((f) => f.replace(".json", ""))
     .filter((id) => id !== "home_template" && !id.startsWith("home_"));
 
-  rooms = new Map(mapIds.map((id) => [id, new Room(id)]));
+  const registry = makeRegistry();
+
+  rooms = new Map(mapIds.map((id) => [id, new Room(id, undefined, undefined, registry)]));
   console.log(`[server] Loaded maps: ${mapIds.join(", ")}`);
 
   const wss = new WebSocketServer({ port: PORT });
@@ -77,7 +97,7 @@ async function main() {
     if (mapId.startsWith("home_")) {
       const userId = mapId.replace("home_", "");
       try {
-        room = await getOrCreateHomeRoom(userId);
+        room = await getOrCreateHomeRoom(userId, registry);
       } catch (e) {
         console.error(`[home] Failed to load room for ${mapId}:`, e);
         ws.close();

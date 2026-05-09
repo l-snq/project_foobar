@@ -67,6 +67,12 @@ export interface GameHUDProps {
   onOpenInventory: (() => void) | null;
   isAdmin: boolean;
   isHomeRoom: boolean;
+  inFloorPaintMode: boolean;
+  onToggleFloorPaint: () => void;
+  brushColor: string;
+  onBrushColorChange: (c: string) => void;
+  brushSize: number;
+  onBrushSizeChange: (s: number) => void;
 }
 
 export default function GameHUD({
@@ -82,6 +88,7 @@ export default function GameHUD({
   setSelectedObjHitboxRadius, setSelectedObjHitboxOffsetX, setSelectedObjHitboxOffsetZ,
   setChatInput, setChatOpen, onChatSubmit, onBakeMap, onFileSelected,
   onOpenStore, onOpenInventory, isAdmin, isHomeRoom,
+  inFloorPaintMode, onToggleFloorPaint, brushColor, onBrushColorChange, brushSize, onBrushSizeChange,
 }: GameHUDProps) {
   const healthPct = Math.max(0, health / maxHealth);
 
@@ -400,6 +407,23 @@ export default function GameHUD({
               <button
                 className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden"
                 style={{
+                  background: inFloorPaintMode
+                    ? "linear-gradient(160deg, rgba(180,120,255,0.3) 0%, rgba(100,40,200,0.22) 100%)"
+                    : "linear-gradient(160deg, rgba(180,120,255,0.18) 0%, rgba(100,40,200,0.12) 100%)",
+                  border: `1px solid ${inFloorPaintMode ? "rgba(200,140,255,0.7)" : "rgba(180,120,255,0.4)"}`,
+                  backdropFilter: "blur(10px)",
+                  color: inFloorPaintMode ? "#e8c8ff" : "rgba(220,180,255,0.85)",
+                  boxShadow: inFloorPaintMode ? "0 0 14px rgba(160,80,255,0.4)" : "none",
+                }}
+                onClick={onToggleFloorPaint}
+              >
+                <span className="relative">{inFloorPaintMode ? "Exit Paint" : "Paint Floor"}</span>
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden"
+                style={{
                   background: "linear-gradient(160deg, rgba(255,220,80,0.18) 0%, rgba(180,120,0,0.12) 100%)",
                   border: "1px solid rgba(255,200,60,0.4)",
                   backdropFilter: "blur(10px)",
@@ -430,6 +454,67 @@ export default function GameHUD({
           await onFileSelected(file);
         }}
       />
+
+      {/* Floor paint controls */}
+      {inFloorPaintMode && (
+        <div
+          className="absolute top-4 right-4 flex flex-col gap-3 p-4 rounded-2xl pointer-events-auto w-48"
+          style={{
+            background: "linear-gradient(160deg, rgba(180,120,255,0.2) 0%, rgba(80,30,160,0.15) 100%)",
+            border: "1px solid rgba(200,140,255,0.4)",
+            backdropFilter: "blur(16px)",
+            boxShadow: "0 8px 30px rgba(120,40,220,0.3), inset 0 1px 0 rgba(255,255,255,0.2)",
+          }}
+        >
+          <p className="text-xs font-bold tracking-widest uppercase"
+            style={{ color: "#d8aaff", textShadow: "0 0 8px rgba(180,80,255,0.6)" }}>
+            Floor Paint
+          </p>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold" style={{ color: "rgba(220,190,255,0.8)" }}>
+              Brush colour
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={brushColor}
+                className="w-8 h-8 rounded-lg cursor-pointer border-0 bg-transparent"
+                onChange={(e) => onBrushColorChange(e.target.value)}
+              />
+              <span className="text-xs font-mono" style={{ color: "rgba(200,170,255,0.7)" }}>
+                {brushColor}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold" style={{ color: "rgba(220,190,255,0.8)" }}>
+              Brush size
+            </label>
+            <div className="flex gap-1.5">
+              {[1, 2, 3, 5].map((s) => (
+                <button
+                  key={s}
+                  className="flex-1 py-1 rounded-lg text-xs font-bold"
+                  style={{
+                    background: brushSize === s ? "rgba(180,100,255,0.4)" : "rgba(180,100,255,0.1)",
+                    border: `1px solid ${brushSize === s ? "rgba(200,140,255,0.7)" : "rgba(180,100,255,0.25)"}`,
+                    color: brushSize === s ? "#e0b8ff" : "rgba(200,160,255,0.5)",
+                  }}
+                  onClick={() => onBrushSizeChange(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-[10px]" style={{ color: "rgba(200,160,255,0.5)" }}>
+            Click or drag to paint · Bake to Map to save
+          </p>
+        </div>
+      )}
 
       {/* Edit mode badge */}
       {inEditMode && (

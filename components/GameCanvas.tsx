@@ -10,10 +10,12 @@ import { extractHitboxes, hideHitboxGroup } from "./utils/hitboxUtils";
 import { supabase } from "@/lib/supabase";
 import RAPIER from "@dimforge/rapier3d-compat";
 import GameHUD from "./GameHUD";
+import HomeManagement from "./HomeManagement";
 import HUDProfile from "./HUDProfile";
 import StoreOverlay from "./StoreOverlay";
 import InventoryPicker from "./InventoryPicker";
 import { buildGround, makeNameLabel, makeGhost, isOccluded, makeProjectileLine } from "./utils/threeHelpers";
+import { FloorPainter } from "./FloorPainter";
 import { updateLocalPlayer } from "./GameLoopUtils";
 import { Game } from "./GameManager";
 import type { StoreItem } from "../server/types";
@@ -100,10 +102,15 @@ export default function GameCanvas({ playerName, userId }: Props) {
   const [levelUpMsg, setLevelUpMsg] = useState<string | null>(null);
   const [inventoryRefreshKey, setInventoryRefreshKey] = useState(0);
   const [inEditMode, setInEditMode] = useState(false);
+  const [inFloorPaintMode, setInFloorPaintMode] = useState(false);
+  const [brushColor, setBrushColor] = useState("#3a7d44");
+  const [brushSize, setBrushSize] = useState(1);
+  const [pendingInvite, setPendingInvite] = useState<{ fromOwnerName: string; homeRoomId: string } | null>(null);
 
   const placementStoreItemIdRef = useRef<string | null>(null);
   const enterStoreItemPlacementModeRef = useRef<((item: StoreItem) => void) | null>(null);
   const inEditModeRef = useRef(false);
+  const floorPainterRef = useRef<FloorPainter | null>(null);
 
   const chatIdRef = useRef(0);
   const chatInputRef = useRef<HTMLInputElement>(null);
@@ -175,6 +182,13 @@ export default function GameCanvas({ playerName, userId }: Props) {
     // Declare mutable holders so applyMap can replace them on reconnect.
     let mapLights: THREE.Object3D[] = [];
     let mapGround: THREE.Group | null = null;
+    let mapStaticRoots: THREE.Object3D[] = [];
+    let mapWaterRoots: THREE.Object3D[] = [];
+    let mapDoorRoots: THREE.Object3D[] = [];
+    let applyMapGen = 0;
+
+    const floorPainter = new FloorPainter(scene);
+    floorPainterRef.current = floorPainter;
 
     // ---- Transform gizmo ----
     const transformControls = new TransformControls(camera, renderer.domElement);
@@ -205,6 +219,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
         hitboxRadius: entry.data.hitboxRadius,
         hitboxOffsetX: entry.data.hitboxOffsetX,
         hitboxOffsetZ: entry.data.hitboxOffsetZ,
+        hitboxes: entry.data.hitboxes,
       } satisfies ClientMessage));
     });
 
@@ -215,7 +230,12 @@ export default function GameCanvas({ playerName, userId }: Props) {
       if (!entry) return;
       entry.data.x = entry.root.position.x;
       entry.data.z = entry.root.position.z;
-      entry.hitboxMesh.position.set(entry.data.x + entry.data.hitboxOffsetX, 1, entry.data.z + entry.data.hitboxOffsetZ);
+      // Regenerate hitbox visual so world-space positions stay correct
+      disposeHitboxMesh(entry.hitboxMesh);
+      scene.remove(entry.hitboxMesh);
+      entry.hitboxMesh = makeHitboxMesh(entry.data);
+      entry.hitboxMesh.visible = true;
+      scene.add(entry.hitboxMesh);
       const col = placedColliders.get(currentSelectedId);
       if (col) { col.x = entry.data.x; col.z = entry.data.z; }
       removeRapierPlacedBody(currentSelectedId);
@@ -242,7 +262,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
     // ---- Debug wireframes ----
     let debugVisible = false;
-    const debugMeshes: THREE.Mesh[] = [];
+    let debugMeshes: THREE.Mesh[] = [];
 
     // ---- Rapier client-side prediction ----
     const RAPIER_PHH = 0.5; // player half-height
@@ -488,6 +508,12 @@ export default function GameCanvas({ playerName, userId }: Props) {
       if (e.target !== renderer.domElement) return;
       if (gizmoPointerDown) return;
 
+      // Floor paint mode — painting is driven by tick(); just arm the flag here
+      if (floorPainter.isActive) {
+        floorPainter.onMouseDown();
+        return;
+      }
+
       // Placement mode — click confirms placement
       if (placementUrlRef.current) {
         confirmPlacement();
@@ -498,11 +524,17 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
       if (inEditModeRef.current) {
         // Edit mode — click to select (gizmo handles translation), click ground to deselect
-        const placedMeshList = Array.from(placedMeshToId.keys());
-        const hits = placedMeshList.length > 0 ? raycaster.intersectObjects(placedMeshList, false) : [];
+        // Use recursive raycasting on roots so hidden hitbox meshes don't interfere,
+        // then walk up the parent chain to find which root was hit.
+        const placedRoots = Array.from(placedRootToId.keys());
+        const hits = placedRoots.length > 0 ? raycaster.intersectObjects(placedRoots, true) : [];
         if (hits.length > 0) {
-          const hitId = placedMeshToId.get(hits[0].object);
-          if (hitId) { selectObject(hitId); return; }
+          let hitObj: THREE.Object3D | null = hits[0].object;
+          while (hitObj) {
+            const hitId = placedRootToId.get(hitObj);
+            if (hitId) { selectObject(hitId); return; }
+            hitObj = hitObj.parent;
+          }
         }
         if (currentSelectedId) selectObject(null);
         return;
@@ -523,6 +555,8 @@ export default function GameCanvas({ playerName, userId }: Props) {
       ws.send(JSON.stringify({ type: "shoot", dirX: dx / len, dirZ: dz / len } satisfies ClientMessage));
     }
     window.addEventListener("mousedown", onMouseDown);
+    function onMouseUp() { floorPainter.onMouseUp(); }
+    window.addEventListener("mouseup", onMouseUp);
 
     // ---- Local character ----
     const character = new LocalCharacter(scene, playerName);
@@ -533,10 +567,10 @@ export default function GameCanvas({ playerName, userId }: Props) {
     const pendingRemoteStates: PlayerState[] = [];
 
     // ---- Placed objects ----
-    interface PlacedEntry { data: PlacedObject; root: THREE.Object3D; hitboxMesh: THREE.Mesh }
+    interface PlacedEntry { data: PlacedObject; root: THREE.Object3D; hitboxMesh: THREE.Object3D }
     const placedObjects = new Map<string, PlacedEntry>();
     const gltfCache = new Map<string, THREE.Group>();
-    const placedMeshToId = new Map<THREE.Object3D, string>();
+    const placedRootToId = new Map<THREE.Object3D, string>();
     let placementGhost: THREE.Object3D | null = null;
     let placementPreset: Partial<PlacedObject> | null = null;
     let placementHitboxes: HitboxDef[] = [];
@@ -559,9 +593,21 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
     // Static objects are spawned by applyMap when the server sends the map config.
 
-function applyMap(map: MapConfig, ) {
+function applyMap(map: MapConfig) {
 	const mount = mountRef.current;
 	if (!mount) return;
+	const gen = ++applyMapGen;
+
+	// Clean up previous call's scene objects so applyMap is safely re-entrant
+	for (const root of mapStaticRoots) scene.remove(root);
+	mapStaticRoots = [];
+	for (const root of mapWaterRoots) scene.remove(root);
+	mapWaterRoots = [];
+	for (const root of mapDoorRoots) scene.remove(root);
+	mapDoorRoots = [];
+	for (const m of debugMeshes) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); scene.remove(m); }
+	debugMeshes = [];
+
 	// Sky gradient
 	mount.style.background = `linear-gradient(180deg, ${map.environment.sky.top} 0%, ${map.environment.sky.mid} 40%, ${map.environment.sky.horizon} 100%)`;
 
@@ -593,9 +639,12 @@ function applyMap(map: MapConfig, ) {
 	// Ground
 	if (mapGround) { scene.remove(mapGround); mapGround = null; }
 	if (!map.hideGround) {
-		mapGround = buildGround(map.groundSize, parseInt(map.environment.groundColor.slice(1), 16));
-		mapGround.traverse((child) => { if (child instanceof THREE.Mesh) child.receiveShadow = true; });
+		const result = buildGround(map.groundSize, map.environment.groundColor, map.groundPaintData);
+		mapGround = result.group;
+		floorPainter.applyMap(result, map.groundSize, map.groundPaintData, map.environment.groundColor);
 		scene.add(mapGround);
+	} else {
+		floorPainter.applyMap(null, 0);
 	}
 
 	// Static objects — group by URL so each GLTF is fetched once (skip collisionOnly)
@@ -609,11 +658,14 @@ function applyMap(map: MapConfig, ) {
 	}
 	for (const [url, objs] of byUrl) {
 		loader.load(url, (gltf) => {
+			if (gen !== applyMapGen) return; // stale — map was re-applied while this was loading
 			for (const obj of objs) {
 				const mesh = gltf.scene.clone(true);
+				hideHitboxGroup(mesh);
 				mesh.position.set(obj.x, 0, obj.z);
 				mesh.rotation.y = obj.rotY;
 				scene.add(mesh);
+				mapStaticRoots.push(mesh);
 				mesh.traverse((child) => {
 					if (child instanceof THREE.Mesh) {
 						occluders.push(child);
@@ -638,6 +690,7 @@ function applyMap(map: MapConfig, ) {
 		waterMesh.rotation.x = -Math.PI / 2;
 		waterMesh.position.set(zone.x, 0.02, zone.z);
 		scene.add(waterMesh);
+		mapWaterRoots.push(waterMesh);
 	}
 
 	// Door trigger zones — glowing ring on ground + floating label
@@ -653,6 +706,7 @@ function applyMap(map: MapConfig, ) {
 		ring.rotation.x = -Math.PI / 2;
 		ring.position.set(door.x, 0.03, door.z);
 		scene.add(ring);
+		mapDoorRoots.push(ring);
 
 		const labelDiv = document.createElement("div");
 		labelDiv.textContent = `→ ${door.label}`;
@@ -669,6 +723,7 @@ function applyMap(map: MapConfig, ) {
 		const doorLabel = new CSS2DObject(labelDiv);
 		doorLabel.position.set(door.x, 2.2, door.z);
 		scene.add(doorLabel);
+		mapDoorRoots.push(doorLabel);
 	}
 
 	// Debug wireframes for static colliders
@@ -749,21 +804,53 @@ function applyMap(map: MapConfig, ) {
       }
     }
 
-    function makeHitboxMesh(data: PlacedObject): THREE.Mesh {
-      const r = data.hitboxRadius;
-      const geo = data.hitboxShape === "box"
-        ? new THREE.BoxGeometry(r * 2, 2, r * 2)
-        : new THREE.CylinderGeometry(r, r, 2, 24);
-      const mat = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true, transparent: true, opacity: 0.5 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(data.x + (data.hitboxOffsetX ?? 0), 1, data.z + (data.hitboxOffsetZ ?? 0));
-      mesh.visible = false;
-      return mesh;
+    function makeHitboxMesh(data: PlacedObject): THREE.Object3D {
+      const group = new THREE.Group();
+      group.visible = false;
+      const wireMat = () => new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true, transparent: true, opacity: 0.5 });
+
+      if (data.hitboxes && data.hitboxes.length > 0) {
+        // Multi-hitbox: one wireframe per HitboxDef, positions computed in world space
+        const cos = Math.cos(data.rotY);
+        const sin = Math.sin(data.rotY);
+        for (const hb of data.hitboxes) {
+          const wx = data.x + (hb.offsetX * cos + hb.offsetZ * sin) * data.scale;
+          const wz = data.z + (-hb.offsetX * sin + hb.offsetZ * cos) * data.scale;
+          const hw = hb.halfW * data.scale;
+          const hd = hb.halfD * data.scale;
+          const geo = hb.shape === "cylinder"
+            ? new THREE.CylinderGeometry(hw, hw, 2, 16)
+            : new THREE.BoxGeometry(hw * 2, 2, hd * 2);
+          const mesh = new THREE.Mesh(geo, wireMat());
+          mesh.position.set(wx, 1, wz);
+          group.add(mesh);
+        }
+      } else {
+        // Single hitbox fallback
+        const r = data.hitboxRadius;
+        const geo = data.hitboxShape === "box"
+          ? new THREE.BoxGeometry(r * 2, 2, r * 2)
+          : new THREE.CylinderGeometry(r, r, 2, 24);
+        const mesh = new THREE.Mesh(geo, wireMat());
+        mesh.position.set(data.x + (data.hitboxOffsetX ?? 0), 1, data.z + (data.hitboxOffsetZ ?? 0));
+        group.add(mesh);
+      }
+
+      return group;
+    }
+
+    function disposeHitboxMesh(obj: THREE.Object3D) {
+      obj.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (child.material as THREE.Material).dispose();
+        }
+      });
     }
 
     function updateHitboxMesh(entry: PlacedEntry) {
+      disposeHitboxMesh(entry.hitboxMesh);
       scene.remove(entry.hitboxMesh);
-      entry.hitboxMesh.geometry.dispose();
       entry.hitboxMesh = makeHitboxMesh(entry.data);
       scene.add(entry.hitboxMesh);
       entry.hitboxMesh.visible = currentSelectedId === entry.data.id;
@@ -789,7 +876,7 @@ function applyMap(map: MapConfig, ) {
       const hitboxMesh = makeHitboxMesh(data);
       scene.add(hitboxMesh);
       placedObjects.set(data.id, { data, root, hitboxMesh });
-      root.traverse((child) => placedMeshToId.set(child, data.id));
+      placedRootToId.set(root, data.id);
       placedColliders.set(data.id, { x: data.x, z: data.z, shape: data.hitboxShape, radius: data.hitboxRadius, offsetX: data.hitboxOffsetX, offsetZ: data.hitboxOffsetZ });
       addRapierPlacedBody(data);
     }
@@ -797,10 +884,10 @@ function applyMap(map: MapConfig, ) {
     function removePlacedObject(id: string) {
       const entry = placedObjects.get(id);
       if (!entry) return;
-      entry.root.traverse((child) => placedMeshToId.delete(child));
+      placedRootToId.delete(entry.root);
       scene.remove(entry.root);
+      disposeHitboxMesh(entry.hitboxMesh);
       scene.remove(entry.hitboxMesh);
-      entry.hitboxMesh.geometry.dispose();
       placedObjects.delete(id);
       placedColliders.delete(id);
       removeRapierPlacedBody(id);
@@ -869,6 +956,7 @@ function applyMap(map: MapConfig, ) {
 
     enterPlacementModeRef.current = enterPlacementMode;
     exitPlacementModeRef.current = exitPlacementMode;
+
     enterStoreItemPlacementModeRef.current = (item: StoreItem) => {
       placementStoreItemIdRef.current = item.id;
       enterPlacementMode(item.model_url);
@@ -892,7 +980,7 @@ function applyMap(map: MapConfig, ) {
       if (currentSelectedId === id) { refreshSelectionBox(entry.root); if (entry.hitboxMesh) entry.hitboxMesh.visible = true; }
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "moveObject", id, x: entry.data.x, z: entry.data.z, rotY, scale, hitboxShape, hitboxRadius, hitboxOffsetX, hitboxOffsetZ } satisfies ClientMessage));
+        ws.send(JSON.stringify({ type: "moveObject", id, x: entry.data.x, z: entry.data.z, rotY, scale, hitboxShape, hitboxRadius, hitboxOffsetX, hitboxOffsetZ, hitboxes: entry.data.hitboxes } satisfies ClientMessage));
       }
     };
 
@@ -901,14 +989,18 @@ function applyMap(map: MapConfig, ) {
       if (!entry) return;
       entry.data.hitboxOffsetX = offsetX;
       entry.data.hitboxOffsetZ = offsetZ;
-      entry.hitboxMesh.position.set(entry.data.x + offsetX, 1, entry.data.z + offsetZ);
+      // Update single-hitbox visual (multi-hitbox objects use fixed GLTF-extracted positions)
+      if (!entry.data.hitboxes?.length) {
+        const child = entry.hitboxMesh.children[0];
+        if (child) child.position.set(entry.data.x + offsetX, 1, entry.data.z + offsetZ);
+      }
       const col = placedColliders.get(id);
       if (col) { col.offsetX = offsetX; col.offsetZ = offsetZ; }
       removeRapierPlacedBody(id);
       addRapierPlacedBody(entry.data);
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "moveObject", id, x: entry.data.x, z: entry.data.z, rotY: entry.data.rotY, scale: entry.data.scale, hitboxShape: entry.data.hitboxShape, hitboxRadius: entry.data.hitboxRadius, hitboxOffsetX: offsetX, hitboxOffsetZ: offsetZ } satisfies ClientMessage));
+        ws.send(JSON.stringify({ type: "moveObject", id, x: entry.data.x, z: entry.data.z, rotY: entry.data.rotY, scale: entry.data.scale, hitboxShape: entry.data.hitboxShape, hitboxRadius: entry.data.hitboxRadius, hitboxOffsetX: offsetX, hitboxOffsetZ: offsetZ, hitboxes: entry.data.hitboxes } satisfies ClientMessage));
       }
     };
 
@@ -1255,8 +1347,26 @@ function applyMap(map: MapConfig, ) {
         setCurrentMapId(msg.targetMapId);
       }
 
+      if (msg.type === "kicked") {
+        setChatMessages((prev) => [...prev.slice(-49), { fromName: "System", text: "You were kicked from this home.", id: ++chatIdRef.current }]);
+        setChatOpen(true);
+        setCurrentMapId("forest");
+      }
+
+      if (msg.type === "inviteReceived") {
+        setPendingInvite({ fromOwnerName: msg.fromOwnerName, homeRoomId: msg.homeRoomId });
+      }
+
+      if (msg.type === "inviteError") {
+        setChatMessages((prev) => [...prev.slice(-49), { fromName: "System", text: msg.reason, id: ++chatIdRef.current }]);
+        setChatOpen(true);
+      }
+
       if (msg.type === "mapBaked") {
-        setMapReloadToken((t) => t + 1);
+        // Re-apply the updated map in-place — no reconnect needed, so other players aren't disrupted
+        applyMap(msg.map);
+        // Placed objects were merged into static objects on the server; clear them client-side too
+        for (const id of [...placedObjects.keys()]) removePlacedObject(id);
       }
 
       if (msg.type === "profileSync") {
@@ -1466,6 +1576,8 @@ function applyMap(map: MapConfig, ) {
         }
       }
 
+      floorPainter.update(raycaster, mouse, camera, groundPlane);
+
 
       // Follow camera
       if (character.root) {
@@ -1507,8 +1619,10 @@ function applyMap(map: MapConfig, ) {
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mouseup", onMouseUp);
       window.removeEventListener("resize", onResize);
       character.dispose();
+      floorPainter.dispose();
       renderer.dispose();
       for (const remote of remotePlayers.values()) {
         remote.mixerUnarmed.stopAllAction();
@@ -1518,6 +1632,9 @@ function applyMap(map: MapConfig, ) {
       }
       for (const line of projectileLines.values()) { line.geometry.dispose(); scene.remove(line); }
       for (const m of debugMeshes) { m.geometry.dispose(); scene.remove(m); }
+      for (const root of mapStaticRoots) scene.remove(root);
+      for (const root of mapWaterRoots) scene.remove(root);
+      for (const root of mapDoorRoots) scene.remove(root);
       for (const entry of placedObjects.values()) scene.remove(entry.root);
       if (placementGhost) scene.remove(placementGhost);
       if (selectionBox) scene.remove(selectionBox);
@@ -1566,9 +1683,34 @@ function applyMap(map: MapConfig, ) {
   const handleBakeMap = useCallback(() => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "bakeMap" } satisfies ClientMessage));
+      const paintData = floorPainterRef.current?.paintData;
+      ws.send(JSON.stringify({
+        type: "bakeMap",
+        groundPaintData: paintData && paintData.length > 0 ? paintData : undefined,
+      } satisfies ClientMessage));
     }
   }, []);
+
+  const kickPlayer = useCallback((targetId: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "kickPlayer", targetId } satisfies ClientMessage));
+  }, []);
+
+  const invitePlayer = useCallback((targetName: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "invitePlayer", targetName } satisfies ClientMessage));
+  }, []);
+
+  const handleAcceptInvite = useCallback(() => {
+    setPendingInvite((inv) => {
+      if (inv) setCurrentMapId(inv.homeRoomId);
+      return null;
+    });
+  }, []);
+
+  const handleDeclineInvite = useCallback(() => setPendingInvite(null), []);
 
   const handleFileSelected = useCallback(async (file: File) => {
     setIsUploading(true);
@@ -1644,6 +1786,23 @@ function applyMap(map: MapConfig, ) {
         onOpenInventory={currentMapId === `home_${userId}` ? () => setInventoryOpen(true) : null}
         isAdmin={new Set((process.env.NEXT_PUBLIC_ADMIN_USER_IDS ?? "").split(",").filter(Boolean)).has(userId)}
         isHomeRoom={currentMapId === `home_${userId}`}
+        inFloorPaintMode={inFloorPaintMode}
+        onToggleFloorPaint={() => floorPainterRef.current?.toggle(setInFloorPaintMode)}
+        brushColor={brushColor}
+        onBrushColorChange={(c) => { setBrushColor(c); if (floorPainterRef.current) floorPainterRef.current.brushColor = c; }}
+        brushSize={brushSize}
+        onBrushSizeChange={(s) => { setBrushSize(s); if (floorPainterRef.current) floorPainterRef.current.brushSize = s; }}
+      />
+
+      <HomeManagement
+        isHomeRoom={currentMapId === `home_${userId}`}
+        scores={scores}
+        myIdRef={myIdRef}
+        onKickPlayer={kickPlayer}
+        onInvitePlayer={invitePlayer}
+        pendingInvite={pendingInvite}
+        onAcceptInvite={handleAcceptInvite}
+        onDeclineInvite={handleDeclineInvite}
       />
 
       <HUDProfile xp={xp} currency={currency} level={level} />
