@@ -3,6 +3,7 @@
 import React from "react";
 import type { Weapon, ScoreEntry, PlacedObject } from "../server/types";
 import type { ChatMessage } from "./GameCanvas";
+import { glass } from "./utils/glassStyles";
 
 export interface GameHUDProps {
   // Cursor
@@ -256,10 +257,7 @@ export default function GameHUD({
           <div
             className="font-black text-xl px-7 py-3 rounded-2xl tracking-wide animate-bounce text-center relative overflow-hidden"
             style={{
-              background: "linear-gradient(160deg, rgba(255,180,50,0.28) 0%, rgba(200,80,0,0.22) 100%)",
-              border: "1px solid rgba(255,180,50,0.5)",
-              backdropFilter: "blur(14px)",
-              boxShadow: "0 0 30px rgba(255,140,0,0.5), inset 0 1px 0 rgba(255,255,255,0.35)",
+              ...glass.panelAmber,
               color: "#ffe0a0",
               textShadow: "0 0 15px rgba(255,160,0,0.8)",
             }}
@@ -284,12 +282,7 @@ export default function GameHUD({
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div
             className="rounded-3xl px-7 py-5 min-w-72 relative overflow-hidden"
-            style={{
-              background: "linear-gradient(160deg, rgba(255,255,255,0.18) 0%, rgba(60,180,100,0.1) 100%)",
-              border: "1px solid rgba(255,255,255,0.3)",
-              backdropFilter: "blur(22px)",
-              boxShadow: "0 8px 40px rgba(0,120,50,0.5), inset 0 1px 0 rgba(255,255,255,0.4)",
-            }}
+            style={glass.panelGreen}
           >
             <div className="absolute inset-x-0 top-0 h-1/3 rounded-t-3xl pointer-events-none"
               style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.2) 0%, transparent 100%)" }} />
@@ -332,12 +325,7 @@ export default function GameHUD({
         >
           <div
             className="text-center px-10 py-7 rounded-3xl relative overflow-hidden"
-            style={{
-              background: "linear-gradient(160deg, rgba(200,30,30,0.22) 0%, rgba(80,0,0,0.32) 100%)",
-              border: "1px solid rgba(255,100,100,0.35)",
-              backdropFilter: "blur(18px)",
-              boxShadow: "0 0 50px rgba(200,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.2)",
-            }}
+            style={glass.panelRed}
           >
             <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-3xl pointer-events-none"
               style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, transparent 100%)" }} />
@@ -389,11 +377,8 @@ export default function GameHUD({
               <button
                 className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden disabled:opacity-50"
                 style={{
-                  background: "linear-gradient(160deg, rgba(255,255,255,0.15) 0%, rgba(60,180,100,0.1) 100%)",
-                  border: "1px solid rgba(80,220,120,0.35)",
-                  backdropFilter: "blur(10px)",
+                  ...glass.buttonGreen,
                   color: "rgba(200,255,220,0.9)",
-                  boxShadow: "0 2px 10px rgba(0,160,60,0.25), inset 0 1px 0 rgba(255,255,255,0.25)",
                 }}
                 disabled={isUploading}
                 onClick={() => fileInputRef.current?.click()}
@@ -407,13 +392,10 @@ export default function GameHUD({
               <button
                 className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden"
                 style={{
-                  background: inFloorPaintMode
-                    ? "linear-gradient(160deg, rgba(180,120,255,0.3) 0%, rgba(100,40,200,0.22) 100%)"
-                    : "linear-gradient(160deg, rgba(180,120,255,0.18) 0%, rgba(100,40,200,0.12) 100%)",
-                  border: `1px solid ${inFloorPaintMode ? "rgba(200,140,255,0.7)" : "rgba(180,120,255,0.4)"}`,
-                  backdropFilter: "blur(10px)",
+                  ...glass.buttonPurple,
                   color: inFloorPaintMode ? "#e8c8ff" : "rgba(220,180,255,0.85)",
-                  boxShadow: inFloorPaintMode ? "0 0 14px rgba(160,80,255,0.4)" : "none",
+                  border: `1px solid ${inFloorPaintMode ? "rgba(200,140,255,0.7)" : "rgba(180,120,255,0.42)"}`,
+                  boxShadow: inFloorPaintMode ? "0 0 14px rgba(160,80,255,0.5), inset 0 1px 0 rgba(255,255,255,0.18)" : glass.buttonPurple.boxShadow,
                 }}
                 onClick={onToggleFloorPaint}
               >
@@ -424,11 +406,8 @@ export default function GameHUD({
               <button
                 className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden"
                 style={{
-                  background: "linear-gradient(160deg, rgba(255,220,80,0.18) 0%, rgba(180,120,0,0.12) 100%)",
-                  border: "1px solid rgba(255,200,60,0.4)",
-                  backdropFilter: "blur(10px)",
+                  ...glass.buttonYellow,
                   color: "rgba(255,230,120,0.95)",
-                  boxShadow: "0 2px 10px rgba(200,140,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2)",
                 }}
                 onClick={onBakeMap}
               >
@@ -459,12 +438,7 @@ export default function GameHUD({
       {inFloorPaintMode && (
         <div
           className="absolute top-4 right-4 flex flex-col gap-3 p-4 rounded-2xl pointer-events-auto w-48"
-          style={{
-            background: "linear-gradient(160deg, rgba(180,120,255,0.2) 0%, rgba(80,30,160,0.15) 100%)",
-            border: "1px solid rgba(200,140,255,0.4)",
-            backdropFilter: "blur(16px)",
-            boxShadow: "0 8px 30px rgba(120,40,220,0.3), inset 0 1px 0 rgba(255,255,255,0.2)",
-          }}
+          style={glass.panelPurple}
         >
           <p className="text-xs font-bold tracking-widest uppercase"
             style={{ color: "#d8aaff", textShadow: "0 0 8px rgba(180,80,255,0.6)" }}>
@@ -521,12 +495,9 @@ export default function GameHUD({
         <div
           className="absolute top-4 left-1/2 -translate-x-1/2 px-5 py-2 rounded-full text-sm font-bold tracking-widest uppercase pointer-events-none"
           style={{
-            background: "linear-gradient(160deg, rgba(255,180,0,0.25) 0%, rgba(200,100,0,0.2) 100%)",
-            border: "1px solid rgba(255,180,0,0.5)",
-            backdropFilter: "blur(12px)",
+            ...glass.panelAmber,
             color: "#ffe080",
             textShadow: "0 0 10px rgba(255,160,0,0.6)",
-            boxShadow: "0 0 20px rgba(255,140,0,0.25)",
           }}
         >
           Edit Mode · Click to select · Drag gizmo to move · Del to delete · 2 to exit
@@ -537,12 +508,7 @@ export default function GameHUD({
       {inEditMode && selectedObjId && (
         <div
           className="absolute top-1/2 right-4 -translate-y-1/2 flex flex-col gap-3 p-4 rounded-2xl w-52 pointer-events-auto overflow-hidden"
-          style={{
-            background: "linear-gradient(160deg, rgba(255,255,255,0.16) 0%, rgba(60,180,100,0.09) 100%)",
-            border: "1px solid rgba(255,255,255,0.28)",
-            backdropFilter: "blur(18px)",
-            boxShadow: "0 8px 30px rgba(0,120,50,0.4), inset 0 1px 0 rgba(255,255,255,0.35)",
-          }}
+          style={glass.panelGreen}
         >
           <div className="absolute inset-x-0 top-0 h-1/3 rounded-t-2xl pointer-events-none"
             style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 100%)" }} />
@@ -678,12 +644,7 @@ export default function GameHUD({
           <div
             ref={chatBoxRef}
             className="max-h-48 overflow-y-auto flex flex-col gap-0.5 rounded-2xl px-3 py-2 pointer-events-auto"
-            style={{
-              background: "linear-gradient(160deg, rgba(255,255,255,0.12) 0%, rgba(60,180,100,0.07) 100%)",
-              border: "1px solid rgba(255,255,255,0.2)",
-              backdropFilter: "blur(16px)",
-              boxShadow: "0 4px 20px rgba(0,120,50,0.3), inset 0 1px 0 rgba(255,255,255,0.25)",
-            }}
+            style={glass.panelGreen}
           >
             {chatMessages.map((m) => (
               <div key={m.id} className="text-sm leading-snug">
@@ -717,26 +678,14 @@ export default function GameHUD({
             <>
               <button
                 className="px-3 py-1.5 rounded-xl text-xs pointer-events-auto relative overflow-hidden"
-                style={{
-                  background: "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(60,180,100,0.1) 100%)",
-                  border: "1px solid rgba(80,220,120,0.35)",
-                  backdropFilter: "blur(10px)",
-                  color: "rgba(200,255,220,0.8)",
-                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
-                }}
+                style={{ ...glass.buttonGreen, color: "rgba(200,255,220,0.8)" }}
                 onClick={() => { setChatOpen(true); setTimeout(() => chatInputRef.current?.focus(), 0); }}
               >
                 Chat [T]
               </button>
               <button
                 className="px-3 py-1.5 rounded-xl text-xs pointer-events-auto relative overflow-hidden"
-                style={{
-                  background: "linear-gradient(180deg, rgba(255,220,80,0.18) 0%, rgba(180,120,0,0.12) 100%)",
-                  border: "1px solid rgba(255,200,60,0.35)",
-                  backdropFilter: "blur(10px)",
-                  color: "rgba(255,225,120,0.9)",
-                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2)",
-                }}
+                style={{ ...glass.buttonYellow, color: "rgba(255,225,120,0.9)" }}
                 onClick={onOpenStore}
               >
                 Store [B]
@@ -744,13 +693,7 @@ export default function GameHUD({
               {onOpenInventory && (
                 <button
                   className="px-3 py-1.5 rounded-xl text-xs pointer-events-auto relative overflow-hidden"
-                  style={{
-                    background: "linear-gradient(180deg, rgba(120,180,255,0.18) 0%, rgba(40,80,200,0.12) 100%)",
-                    border: "1px solid rgba(120,180,255,0.35)",
-                    backdropFilter: "blur(10px)",
-                    color: "rgba(180,210,255,0.9)",
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2)",
-                  }}
+                  style={{ ...glass.buttonBlue, color: "rgba(180,210,255,0.9)" }}
                   onClick={onOpenInventory}
                 >
                   Inventory

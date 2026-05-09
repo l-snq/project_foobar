@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import type { ScoreEntry } from "../server/types";
+import { glass } from "./utils/glassStyles";
 
 export interface HomeManagementProps {
   isHomeRoom: boolean;
@@ -31,13 +32,7 @@ export default function HomeManagement({
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-auto">
           <div
             className="px-6 py-4 rounded-2xl flex flex-col items-center gap-3 relative overflow-hidden"
-            style={{
-              background: "linear-gradient(160deg, rgba(120,180,255,0.25) 0%, rgba(40,80,200,0.2) 100%)",
-              border: "1px solid rgba(120,180,255,0.5)",
-              backdropFilter: "blur(18px)",
-              boxShadow: "0 8px 32px rgba(40,80,220,0.4), inset 0 1px 0 rgba(255,255,255,0.3)",
-              minWidth: 260,
-            }}
+            style={{ ...glass.panelBlue, minWidth: 260 }}
           >
             <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-2xl pointer-events-none"
               style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.2) 0%, transparent 100%)" }} />
@@ -80,12 +75,7 @@ export default function HomeManagement({
           {visitorsOpen && (
             <div
               className="w-72 flex flex-col gap-3 p-4 rounded-2xl overflow-hidden"
-              style={{
-                background: "linear-gradient(160deg, rgba(255,200,120,0.18) 0%, rgba(160,80,0,0.12) 100%)",
-                border: "1px solid rgba(255,180,80,0.4)",
-                backdropFilter: "blur(18px)",
-                boxShadow: "0 8px 30px rgba(180,80,0,0.25), inset 0 1px 0 rgba(255,255,255,0.25)",
-              }}
+              style={glass.panelOrange}
             >
               <div className="absolute inset-x-0 top-0 h-1/3 rounded-t-2xl pointer-events-none"
                 style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, transparent 100%)" }} />
@@ -163,13 +153,9 @@ export default function HomeManagement({
           <button
             className="px-3 py-1.5 rounded-xl text-xs font-semibold relative overflow-hidden"
             style={{
-              background: visitorsOpen
-                ? "linear-gradient(180deg, rgba(255,160,80,0.28) 0%, rgba(180,80,0,0.2) 100%)"
-                : "linear-gradient(180deg, rgba(255,160,80,0.16) 0%, rgba(180,80,0,0.1) 100%)",
-              border: `1px solid ${visitorsOpen ? "rgba(255,180,80,0.6)" : "rgba(255,160,80,0.35)"}`,
-              backdropFilter: "blur(10px)",
+              ...glass.buttonOrange,
               color: visitorsOpen ? "rgba(255,220,160,0.95)" : "rgba(255,200,130,0.85)",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2)",
+              border: `1px solid ${visitorsOpen ? "rgba(255,180,80,0.6)" : "rgba(255,160,80,0.42)"}`,
             }}
             onClick={() => setVisitorsOpen((v) => !v)}
           >
