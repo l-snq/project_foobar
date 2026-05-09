@@ -6,9 +6,9 @@
   "hideGround": true,
   "environment": {
     "sky": {
-      "top": "#0a3d8f",
+      "top": "#000000",
       "mid": "#3b9fef",
-      "horizon": "#d4eeff"
+      "horizon": "#000000"
     },
     "fog": {
       "color": "#d4eeff",

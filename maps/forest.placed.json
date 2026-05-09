@@ -11,5 +11,27 @@
     "hitboxRadius": 1,
     "hitboxOffsetX": 0,
     "hitboxOffsetZ": 0
+  },
+  {
+    "id": "15de06bc-80ae-4796-b8ae-8ff66e139f8d",
+    "url": "/uploads/37289e27-fd1e-475b-b687-3eb92bf6eabd.gltf",
+    "placedBy": "86e5c90e-d3d1-4175-a09a-d67d77adea7f",
+    "x": -9.012614206275003,
+    "z": 0.004196068157028776,
+    "rotY": 0.05340707511102683,
+    "scale": 1,
+    "hitboxShape": "cylinder",
+    "hitboxRadius": 1,
+    "hitboxOffsetX": 0,
+    "hitboxOffsetZ": 0,
+    "hitboxes": [
+      {
+        "shape": "box",
+        "offsetX": 0,
+        "offsetZ": -0.0625,
+        "halfW": 0.46875,
+        "halfD": 0.46875
+      }
+    ]
   }
 ]

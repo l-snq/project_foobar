@@ -102,10 +102,6 @@ export class Room {
         ...this.map,
         hideGround: true,
         spawnPoints: [{ x: 0, z: -1.0 }],
-        environment: {
-          ...this.map.environment,
-          sky: { top: "#0a3d8f", mid: "#3b9fef", horizon: "#d4eeff" },
-        },
       };
     }
 
