@@ -303,6 +303,8 @@ export default function GameCanvas({ playerName, userId }: Props) {
           rapierWorld.createCollider(RAPIER.ColliderDesc.cuboid(hw, hh, hd), body);
         }
       }
+      // Any placed objects that arrived before the world was ready get their bodies added now
+      for (const entry of placedObjects.values()) addRapierPlacedBody(entry.data);
     }
 
     function addRapierPlacedBody(obj: PlacedObject) {
@@ -387,6 +389,9 @@ export default function GameCanvas({ playerName, userId }: Props) {
         if ((e.target as HTMLElement)?.tagName === "INPUT") return;
         debugVisible = !debugVisible;
         for (const m of debugMeshes) m.visible = debugVisible;
+        for (const [id, entry] of placedObjects) {
+          entry.hitboxMesh.visible = debugVisible || currentSelectedId === id;
+        }
         return;
       }
       if (e.key === "b" || e.key === "B") {
