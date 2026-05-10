@@ -84,7 +84,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
   const [rampageAnnouncement, setRampageAnnouncement] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [inPlacementMode, setInPlacementMode] = useState(false);
-  const [currentMapId, setCurrentMapId] = useState("forest");
+  const [currentMapId, setCurrentMapId] = useState("hub");
   const [emoteWheelOpen, setEmoteWheelOpen] = useState(false);
   const [mapReloadToken, setMapReloadToken] = useState(0);
   const [selectedObjId, setSelectedObjId] = useState<string | null>(null);
@@ -1370,13 +1370,6 @@ function applyMap(map: MapConfig) {
         setChatOpen(true);
       }
 
-      if (msg.type === "mapBaked") {
-        // Re-apply the updated map in-place — no reconnect needed, so other players aren't disrupted
-        applyMap(msg.map);
-        // Placed objects were merged into static objects on the server; clear them client-side too
-        for (const id of [...placedObjects.keys()]) removePlacedObject(id);
-      }
-
       if (msg.type === "profileSync") {
         setXp(msg.xp);
         setCurrency(msg.currency);
@@ -1688,14 +1681,17 @@ function applyMap(map: MapConfig) {
     sendChat(text);
   }
 
-  const handleBakeMap = useCallback(() => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      const paintData = floorPainterRef.current?.paintData;
-      ws.send(JSON.stringify({
-        type: "bakeMap",
-        groundPaintData: paintData && paintData.length > 0 ? paintData : undefined,
-      } satisfies ClientMessage));
+  const handleToggleFloorPaint = useCallback(() => {
+    const painter = floorPainterRef.current;
+    if (!painter) return;
+    const wasActive = painter.isActive;
+    painter.toggle(setInFloorPaintMode);
+    // Auto-save ground paint data when exiting paint mode
+    if (wasActive && painter.paintData.length > 0) {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "saveGroundPaint", groundPaintData: painter.paintData } satisfies ClientMessage));
+      }
     }
   }, []);
 
@@ -1788,14 +1784,13 @@ function applyMap(map: MapConfig) {
         setChatInput={setChatInput}
         setChatOpen={setChatOpen}
         onChatSubmit={submitChat}
-        onBakeMap={handleBakeMap}
         onFileSelected={handleFileSelected}
         onOpenStore={() => setStoreOpen(true)}
         onOpenInventory={currentMapId === `home_${userId}` ? () => setInventoryOpen(true) : null}
         isAdmin={new Set((process.env.NEXT_PUBLIC_ADMIN_USER_IDS ?? "").split(",").filter(Boolean)).has(userId)}
         isHomeRoom={currentMapId === `home_${userId}`}
         inFloorPaintMode={inFloorPaintMode}
-        onToggleFloorPaint={() => floorPainterRef.current?.toggle(setInFloorPaintMode)}
+        onToggleFloorPaint={handleToggleFloorPaint}
         brushColor={brushColor}
         onBrushColorChange={(c) => { setBrushColor(c); if (floorPainterRef.current) floorPainterRef.current.brushColor = c; }}
         brushSize={brushSize}

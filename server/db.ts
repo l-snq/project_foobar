@@ -17,7 +17,7 @@ export const adminSupabase = createClient(url, key, {
 
 export async function loadHomeData(
   userId: string,
-): Promise<{ map: MapConfig; placedObjects: PlacedObject[] } | null> {
+): Promise<{ map: MapConfig } | null> {
   const { data, error } = await adminSupabase
     .from("homes")
     .select("map_json, placed_objects")
@@ -25,10 +25,16 @@ export async function loadHomeData(
     .single();
 
   if (error || !data) return null;
-  return {
-    map: data.map_json as MapConfig,
-    placedObjects: (data.placed_objects ?? []) as PlacedObject[],
-  };
+
+  let map = data.map_json as MapConfig;
+
+  // One-time migration: fold legacy placed_objects column into map_json.placedObjects
+  if (!map.placedObjects?.length && (data.placed_objects as PlacedObject[] | null)?.length) {
+    map = { ...map, placedObjects: data.placed_objects as PlacedObject[] };
+    await saveHomeMap(userId, map);
+  }
+
+  return { map };
 }
 
 export async function insertHome(userId: string, map: MapConfig): Promise<void> {
@@ -38,13 +44,10 @@ export async function insertHome(userId: string, map: MapConfig): Promise<void> 
   if (error) throw error;
 }
 
-export async function saveHomePlacedObjects(
-  userId: string,
-  objects: PlacedObject[],
-): Promise<void> {
+export async function saveHomeMap(userId: string, map: MapConfig): Promise<void> {
   const { error } = await adminSupabase
     .from("homes")
-    .update({ placed_objects: objects })
+    .update({ map_json: map })
     .eq("user_id", userId);
   if (error) throw error;
 }

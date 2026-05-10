@@ -22,6 +22,18 @@ export class RoomPhysics {
   }
 
   private _addStaticCollider(world: RAPIER.World, obj: StaticObject) {
+    if (obj.hitboxes && obj.hitboxes.length > 0) {
+      const cos = Math.cos(obj.rotY ?? 0);
+      const sin = Math.sin(obj.rotY ?? 0);
+      const scale = obj.scale ?? 1;
+      for (const hb of obj.hitboxes) {
+        const wx = obj.x + (hb.offsetX * cos + hb.offsetZ * sin) * scale;
+        const wz = obj.z + (-hb.offsetX * sin + hb.offsetZ * cos) * scale;
+        const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(wx, 0, wz));
+        world.createCollider(RAPIER.ColliderDesc.cuboid(hb.halfW * scale, PLAYER_HALF_HEIGHT, hb.halfD * scale), body);
+      }
+      return;
+    }
     if (obj.hitboxRadius <= 0) return;
     const hh = (obj.hitboxHeight ?? 1.0) / 2;
     const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(obj.x, 0, obj.z));

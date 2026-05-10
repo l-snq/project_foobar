@@ -41,7 +41,7 @@ async function getOrCreateHomeRoom(userId: string, registry: PlayerRegistry): Pr
     const existing = await loadHomeData(userId);
     let room: Room;
     if (existing) {
-      room = new Room(mapId, existing.map, existing.placedObjects, registry);
+      room = new Room(mapId, existing.map, registry);
       console.log(`[home] Loaded home for ${userId}`);
     } else {
       const template = JSON.parse(
@@ -49,7 +49,7 @@ async function getOrCreateHomeRoom(userId: string, registry: PlayerRegistry): Pr
       ) as MapConfig;
       const homeMap = { ...template, id: mapId };
       await insertHome(userId, homeMap);
-      room = new Room(mapId, homeMap, [], registry);
+      room = new Room(mapId, homeMap, registry);
       console.log(`[home] Created new home for ${userId}`);
     }
     rooms.set(mapId, room);
@@ -79,7 +79,7 @@ async function main() {
 
   const registry = makeRegistry();
 
-  rooms = new Map(mapIds.map((id) => [id, new Room(id, undefined, undefined, registry)]));
+  rooms = new Map(mapIds.map((id) => [id, new Room(id, undefined, registry)]));
   console.log(`[server] Loaded maps: ${mapIds.join(", ")}`);
 
   const wss = new WebSocketServer({ port: PORT });

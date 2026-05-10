@@ -5,9 +5,9 @@ import type { WebSocket } from "ws";
 import RAPIER from "@dimforge/rapier3d-compat";
 import type {
   ClientId, PlayerState, ProjectileState, ScoreEntry,
-  ServerMessage, ClientMessage, Weapon, PlacedObject, MapConfig, StaticObject,
+  ServerMessage, ClientMessage, Weapon, PlacedObject, MapConfig,
 } from "./types";
-import { saveHomePlacedObjects, upsertProfile, addXpAndCurrency, loadInventory } from "./db";
+import { saveHomeMap, upsertProfile, addXpAndCurrency, loadInventory } from "./db";
 import { getStoreItem } from "./storeCache";
 import {
   IDLE_XP_PER_TICK, XP_PER_KILL, XP_PER_OBJECT_PLACED,
@@ -87,7 +87,7 @@ export class Room {
   private tick = 0;
   private interval: ReturnType<typeof setInterval> | null = null;
 
-  constructor(readonly id: string, mapConfig?: MapConfig, initialPlacedObjects?: PlacedObject[], private readonly registry?: PlayerRegistry) {
+  constructor(readonly id: string, mapConfig?: MapConfig, private readonly registry?: PlayerRegistry) {
     this.isHome = id.startsWith("home_");
     this.ownerUserId = this.isHome ? id.replace("home_", "") : null;
 
@@ -110,12 +110,15 @@ export class Room {
     this.physics = new RoomPhysics(this.map);
     this.interval = setInterval(() => this.update(), TICK_MS);
 
-    if (initialPlacedObjects) {
-      for (const obj of initialPlacedObjects) {
+    // Load placed objects: home rooms embed them in map.placedObjects;
+    // non-home rooms fall back to a sidecar .placed.json file on disk.
+    const embedded = this.map.placedObjects ?? [];
+    if (embedded.length > 0) {
+      for (const obj of embedded) {
         this.placedObjects.set(obj.id, obj);
         this.physics.addPlacedBody(obj);
       }
-    } else {
+    } else if (!this.isHome) {
       try {
         const data = JSON.parse(readFileSync(this.objectsFile, "utf8")) as PlacedObject[];
         for (const obj of data) {
@@ -129,6 +132,11 @@ export class Room {
   // ---- Room lifecycle ----
 
   private saveMap() {
+    if (this.isHome && this.ownerUserId) {
+      saveHomeMap(this.ownerUserId, this.map)
+        .catch((e) => console.error(`[home:${this.ownerUserId}] Failed to save map:`, e));
+      return;
+    }
     try {
       writeFileSync(join(MAP_DIR, `${this.id}.json`), JSON.stringify(this.map, null, 2));
     } catch (e) {
@@ -136,17 +144,10 @@ export class Room {
     }
   }
 
-  private saveObjects() {
-    if (this.isHome && this.ownerUserId) {
-      saveHomePlacedObjects(this.ownerUserId, Array.from(this.placedObjects.values()))
-        .catch((e) => console.error(`[home:${this.ownerUserId}] Failed to save objects:`, e));
-      return;
-    }
-    try {
-      writeFileSync(this.objectsFile, JSON.stringify(Array.from(this.placedObjects.values()), null, 2));
-    } catch (e) {
-      console.error("[objects] Failed to save:", e);
-    }
+  // Syncs the runtime placedObjects Map into map.placedObjects then persists.
+  private syncAndSave() {
+    this.map = { ...this.map, placedObjects: Array.from(this.placedObjects.values()) };
+    this.saveMap();
   }
 
   private rebuildPhysicsWorld() {
@@ -325,7 +326,7 @@ export class Room {
       };
       this.placedObjects.set(obj.id, obj);
       this.physics.addPlacedBody(obj);
-      this.saveObjects();
+      this.syncAndSave();
       this.broadcast({ type: "objectPlaced", object: obj });
       if (client.userId) client.pendingXp += XP_PER_OBJECT_PLACED;
     }
@@ -354,7 +355,7 @@ export class Room {
         };
         this.placedObjects.set(obj.id, obj);
         this.physics.addPlacedBody(obj);
-        this.saveObjects();
+        this.syncAndSave();
         this.broadcast({ type: "objectPlaced", object: obj });
         if (client.userId) client.pendingXp += XP_PER_OBJECT_PLACED;
       }).catch((e) => console.error(`[placeStoreItem] lookup failed:`, e));
@@ -385,7 +386,7 @@ export class Room {
       obj.hitboxOffsetZ = msg.hitboxOffsetZ ?? 0;
       obj.hitboxes = msg.hitboxes;
       this.physics.addPlacedBody(obj);
-      this.saveObjects();
+      this.syncAndSave();
       this.broadcast({ type: "objectMoved", object: obj });
     }
 
@@ -394,7 +395,7 @@ export class Room {
       if (!this.placedObjects.has(msg.id)) return;
       this.physics.removePlacedBody(msg.id);
       this.placedObjects.delete(msg.id);
-      this.saveObjects();
+      this.syncAndSave();
       this.broadcast({ type: "objectDeleted", id: msg.id });
     }
 
@@ -417,25 +418,10 @@ export class Room {
       }
     }
 
-    if (msg.type === "bakeMap") {
-      if (!client.userId || !ADMIN_USER_IDS.has(client.userId)) return;
-      const newStatics = [
-        ...this.map.staticObjects,
-        ...Array.from(this.placedObjects.values()).map((obj) => ({
-          url: obj.url,
-          x: obj.x, z: obj.z, rotY: obj.rotY,
-          scale: obj.scale,
-          hitboxShape: obj.hitboxShape,
-          hitboxRadius: obj.hitboxRadius,
-        })),
-      ];
-      this.map = { ...this.map, staticObjects: newStatics, groundPaintData: msg.groundPaintData };
-      this.placedObjects.clear();
+    if (msg.type === "saveGroundPaint") {
+      if (this.isHome && client.userId !== this.ownerUserId) return;
+      this.map = { ...this.map, groundPaintData: msg.groundPaintData };
       this.saveMap();
-      this.saveObjects();
-      this.rebuildPhysicsWorld();
-      this.broadcast({ type: "mapBaked", map: this.map });
-      console.log(`[${this.id}] Map baked: ${newStatics.length} static objects`);
     }
   }
 

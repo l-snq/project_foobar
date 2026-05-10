@@ -21,6 +21,7 @@ export interface StaticObject {
   hitboxRadius: number;
   hitboxDepth?: number;   // Z half-extent for box; defaults to hitboxRadius (square)
   hitboxHeight?: number;  // full collider height; defaults to 1.0
+  hitboxes?: HitboxDef[]; // multi-box hitboxes from GLTF; when present, overrides hitboxShape/hitboxRadius
   collisionOnly?: boolean; // if true, hitbox is registered but no GLTF is rendered
 }
 
@@ -58,6 +59,7 @@ export interface MapConfig {
   environment: MapEnvironment;
   spawnPoints: { x: number; z: number }[];
   staticObjects: StaticObject[];
+  placedObjects?: PlacedObject[]; // user-placed objects; stored alongside the map, no separate bake step needed
   doors: DoorConfig[];
   waterZones: WaterZone[];
   groundPaintData?: string[][];  // per-tile hex colors, [row][col], dimensions = groundSize × groundSize
@@ -127,7 +129,7 @@ export type ClientMessage =
   | { type: "placeObject"; url: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number; hitboxes?: HitboxDef[] }
   | { type: "moveObject"; id: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number; hitboxes?: HitboxDef[] }
   | { type: "deleteObject"; id: string }
-  | { type: "bakeMap"; groundPaintData?: string[][] }
+  | { type: "saveGroundPaint"; groundPaintData: string[][] }
   | { type: "placeStoreItem"; itemId: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number; hitboxes?: HitboxDef[] }
   | { type: "refreshInventory" }
   | { type: "kickPlayer"; targetId: ClientId }
@@ -155,7 +157,6 @@ export type ServerMessage =
   | { type: "objectDeleted"; id: string }
   | { type: "changeMap"; targetMapId: string }
   | { type: "mapChangeError"; reason: string }
-  | { type: "mapBaked"; map: MapConfig }
   | { type: "profileSync"; xp: number; currency: number; level: number }
   | { type: "levelUp"; newLevel: number; currencyAwarded: number }
   | { type: "kicked" }

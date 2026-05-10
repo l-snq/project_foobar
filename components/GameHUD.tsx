@@ -62,7 +62,6 @@ export interface GameHUDProps {
   setChatInput: (s: string) => void;
   setChatOpen: (v: boolean) => void;
   onChatSubmit: () => void;
-  onBakeMap: () => void;
   onFileSelected: (file: File) => Promise<void>;
   onOpenStore: () => void;
   onOpenInventory: (() => void) | null;
@@ -87,7 +86,7 @@ export default function GameHUD({
   applyTransformRef, applyHitboxOffsetRef, deleteObjRef, exitPlacementModeRef,
   setSelectedObjScale, setSelectedObjRotY, setSelectedObjHitboxShape,
   setSelectedObjHitboxRadius, setSelectedObjHitboxOffsetX, setSelectedObjHitboxOffsetZ,
-  setChatInput, setChatOpen, onChatSubmit, onBakeMap, onFileSelected,
+  setChatInput, setChatOpen, onChatSubmit, onFileSelected,
   onOpenStore, onOpenInventory, isAdmin, isHomeRoom,
   inFloorPaintMode, onToggleFloorPaint, brushColor, onBrushColorChange, brushSize, onBrushSizeChange,
 }: GameHUDProps) {
@@ -402,20 +401,6 @@ export default function GameHUD({
                 <span className="relative">{inFloorPaintMode ? "Exit Paint" : "Paint Floor"}</span>
               </button>
             )}
-            {isAdmin && (
-              <button
-                className="px-3 py-2 rounded-xl text-sm font-semibold relative overflow-hidden"
-                style={{
-                  ...glass.buttonYellow,
-                  color: "rgba(255,230,120,0.95)",
-                }}
-                onClick={onBakeMap}
-              >
-                <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
-                  style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, transparent 100%)" }} />
-                <span className="relative">Bake to Map</span>
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -485,7 +470,7 @@ export default function GameHUD({
           </div>
 
           <p className="text-[10px]" style={{ color: "rgba(200,160,255,0.5)" }}>
-            Click or drag to paint · Bake to Map to save
+            Click or drag to paint · Saved when you exit paint mode
           </p>
         </div>
       )}
