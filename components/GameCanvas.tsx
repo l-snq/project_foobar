@@ -841,6 +841,9 @@ function applyMap(map: MapConfig) {
         group.add(mesh);
       }
 
+      // Disable raycasting on all children — Three.js r184 doesn't skip invisible
+      // objects during intersection, so these wireframe meshes would intercept clicks.
+      group.traverse((child) => { child.raycast = () => {}; });
       return group;
     }
 
