@@ -523,8 +523,13 @@ export class Room {
         { x: proj.x, y: 0, z: proj.z },
         { x: proj.dirX, y: 0, z: proj.dirZ },
       );
-      // EXCLUDE_KINEMATIC so bullets pass through players (handled below)
-      const hit = this.physics.world.castRay(ray, stepDist + PROJECTILE_RADIUS, true, RAPIER.QueryFilterFlags.EXCLUDE_KINEMATIC);
+      // Only hit fixed (static) bodies — kinematic player bodies must be excluded manually
+      // because EXCLUDE_KINEMATIC flag is unreliable in this version of Rapier
+      const hit = this.physics.world.castRay(
+        ray, stepDist + PROJECTILE_RADIUS, true,
+        undefined, undefined, undefined, undefined,
+        (collider: RAPIER.Collider) => collider.parent()?.isFixed() ?? false,
+      );
       if (hit !== null) {
         this.projectiles.delete(pid);
         continue;
