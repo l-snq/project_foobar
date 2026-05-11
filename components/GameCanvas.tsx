@@ -1440,14 +1440,13 @@ function applyMap(map: MapConfig) {
       const root = character.root;
       if (root) {
         if (rapierController && rapierPlayerBody && rapierPlayerCollider && rapierWorld) {
-          const rp = rapierPlayerBody.translation();
-          if (Math.abs(rp.x - root.position.x) > 0.001 || Math.abs(rp.z - root.position.z) > 0.001) {
-            rapierPlayerBody.setNextKinematicTranslation({ x: root.position.x, y: 0, z: root.position.z });
-          }
-          const desired = { x: input.x * SPEED * dt, y: 0, z: input.z * SPEED * dt };
+          const cp = rapierPlayerBody.translation();
+          // Blend server correction into the desired movement so it goes through collision detection
+          const corrX = (serverPos.x - root.position.x) * 0.1;
+          const corrZ = (serverPos.z - root.position.z) * 0.1;
+          const desired = { x: input.x * SPEED * dt + corrX, y: 0, z: input.z * SPEED * dt + corrZ };
           rapierController.computeColliderMovement(rapierPlayerCollider, desired);
           const mv = rapierController.computedMovement();
-          const cp = rapierPlayerBody.translation();
           rapierPlayerBody.setNextKinematicTranslation({
             x: Math.max(-rapierBounds, Math.min(rapierBounds, cp.x + mv.x)),
             y: 0,
@@ -1462,10 +1461,10 @@ function applyMap(map: MapConfig) {
             root.position.x += input.x * SPEED * dt;
             root.position.z += input.z * SPEED * dt;
           }
+          root.position.x += (serverPos.x - root.position.x) * 0.1;
+          root.position.z += (serverPos.z - root.position.z) * 0.1;
         }
-        root.position.x += (serverPos.x - root.position.x) * 0.1;
         root.position.y += (serverPos.y - root.position.y) * 0.1;
-        root.position.z += (serverPos.z - root.position.z) * 0.1;
       }
 
       const isMoving = input.lengthSq() > 0;
