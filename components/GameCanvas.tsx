@@ -474,6 +474,10 @@ export default function GameCanvas({ playerName, userId }: Props) {
           setEmoteWheelOpen(true);
         }
       }
+			if (k === "q") {
+				rHeld = true;
+				setEmoteWheelOpen(true);
+			}
     }
     function onKeyUp(e: KeyboardEvent) {
       if (e.key === "Tab") {
@@ -549,10 +553,12 @@ export default function GameCanvas({ playerName, userId }: Props) {
       if (weaponRef.current !== "pistol") return;
       if (isReloadingRef.current) return;
       const ws = wsRef.current;
+			console.log("shot");
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const hit = new THREE.Vector3();
-      if (!raycaster.ray.intersectPlane(groundPlane, hit)) return;
-      if (!character.root) return;
+      if (!raycaster.ray.intersectPlane(groundPlane, hit)) return
+
+			if (!character.root) return;
       const dx = hit.x - character.root.position.x;
       const dz = hit.z - character.root.position.z;
       const len = Math.sqrt(dx * dx + dz * dz);
