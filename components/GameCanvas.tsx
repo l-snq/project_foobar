@@ -1364,7 +1364,7 @@ function applyMap(map: MapConfig) {
       if (msg.type === "kicked") {
         setChatMessages((prev) => [...prev.slice(-49), { fromName: "System", text: "You were kicked from this home.", id: ++chatIdRef.current }]);
         setChatOpen(true);
-        setCurrentMapId("forest");
+        setCurrentMapId("hub");
       }
 
       if (msg.type === "inviteReceived") {
@@ -1679,7 +1679,7 @@ function applyMap(map: MapConfig) {
     }
     if (text === "/hub") {
       setChatMessages((prev) => [...prev, { fromName: "System", text: "Returning to the hub...", id: ++chatIdRef.current }]);
-      setCurrentMapId("forest");
+      setCurrentMapId("hub");
       return;
     }
 

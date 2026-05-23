@@ -37,7 +37,7 @@
       "z": 2.3,
       "rotY": 0,
       "triggerRadius": 0.8,
-      "targetMapId": "forest",
+      "targetMapId": "hub",
       "label": "Leave Home",
       "requiredRole": null
     }
