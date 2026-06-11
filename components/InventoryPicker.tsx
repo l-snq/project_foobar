@@ -12,21 +12,20 @@ interface Props {
 }
 
 export default function InventoryPicker({ open, onClose, refreshKey, onSelectItem }: Props) {
-  const [items, setItems] = useState<StoreItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  // null = first load in flight; refetches keep showing the previous list
+  const [items, setItems] = useState<StoreItem[] | null>(null);
+  const loading = items === null;
 
   useEffect(() => {
     if (!open) return;
-    setLoading(true);
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) { setLoading(false); return; }
+      if (!session) { setItems([]); return; }
       fetch("/api/inventory", {
         headers: { Authorization: `Bearer ${session.access_token}` },
       })
         .then((r) => r.json())
         .then((data) => setItems(Array.isArray(data) ? data : []))
-        .catch(() => setItems([]))
-        .finally(() => setLoading(false));
+        .catch(() => setItems([]));
     });
   }, [open, refreshKey]);
 
@@ -61,13 +60,13 @@ export default function InventoryPicker({ open, onClose, refreshKey, onSelectIte
           {loading && (
             <p className="text-xs text-center py-4" style={{ color: "rgba(180,255,200,0.5)" }}>Loading…</p>
           )}
-          {!loading && items.length === 0 && (
+          {items?.length === 0 && (
             <p className="text-xs text-center py-4" style={{ color: "rgba(180,255,200,0.4)" }}>
               No items yet. Visit the shop!
             </p>
           )}
           <div className="grid grid-cols-4 gap-2">
-            {items.map((item) => (
+            {(items ?? []).map((item) => (
               <button
                 key={item.id}
                 className="flex flex-col items-center gap-1 p-1.5 rounded-xl"

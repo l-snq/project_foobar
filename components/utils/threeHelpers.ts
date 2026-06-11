@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
+import { CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 
 export interface GroundBuildResult {
   group: THREE.Group;
@@ -67,9 +67,6 @@ export function makeNameLabel(name: string, isLocal = false): CSS2DObject {
   label.position.set(0, 2.2, 0);
   return label;
 }
-
-const BULLET_LENGTH = 0.6; // world units
-
 
 export function makeProjectileLine(): THREE.Line {
   // Two points: tail then head. Updated each frame from server state.

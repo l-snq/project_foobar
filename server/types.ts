@@ -125,7 +125,6 @@ export type ClientMessage =
   | { type: "shoot"; dirX: number; dirZ: number }
   | { type: "reload" }
   | { type: "chat"; text: string }
-  | { type: "requestMapChange"; targetMapId: string }
   | { type: "placeObject"; url: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number; hitboxes?: HitboxDef[] }
   | { type: "moveObject"; id: string; x: number; z: number; rotY: number; scale: number; hitboxShape: "cylinder" | "box"; hitboxRadius: number; hitboxOffsetX: number; hitboxOffsetZ: number; hitboxes?: HitboxDef[] }
   | { type: "deleteObject"; id: string }
@@ -156,7 +155,6 @@ export type ServerMessage =
   | { type: "objectMoved"; object: PlacedObject }
   | { type: "objectDeleted"; id: string }
   | { type: "changeMap"; targetMapId: string }
-  | { type: "mapChangeError"; reason: string }
   | { type: "profileSync"; xp: number; currency: number; level: number }
   | { type: "levelUp"; newLevel: number; currencyAwarded: number }
   | { type: "kicked" }

@@ -12,20 +12,19 @@ interface Props {
 }
 
 export default function StoreOverlay({ open, currency, onClose, onPurchaseComplete }: Props) {
-  const [items, setItems] = useState<StoreItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  // null = not fetched yet; a failed fetch leaves null so reopening retries
+  const [items, setItems] = useState<StoreItem[] | null>(null);
   const [buying, setBuying] = useState<string | null>(null); // item id being purchased
   const [feedback, setFeedback] = useState<{ itemId: string; msg: string; ok: boolean } | null>(null);
+  const loading = items === null;
 
   useEffect(() => {
-    if (!open || items.length > 0) return;
-    setLoading(true);
+    if (!open || items !== null) return;
     fetch("/api/store")
       .then((r) => r.json())
       .then((data) => setItems(Array.isArray(data) ? data : []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [open]);
+      .catch(() => {});
+  }, [open, items]);
 
   async function handleBuy(item: StoreItem) {
     if (buying) return;
@@ -106,13 +105,13 @@ export default function StoreOverlay({ open, currency, onClose, onPurchaseComple
               Loading…
             </p>
           )}
-          {!loading && items.length === 0 && (
+          {items?.length === 0 && (
             <p className="text-center text-sm py-8" style={{ color: "rgba(180,255,200,0.5)" }}>
               No items in the store yet.
             </p>
           )}
           <div className="grid grid-cols-3 gap-3">
-            {items.map((item) => {
+            {(items ?? []).map((item) => {
               const fb = feedback?.itemId === item.id ? feedback : null;
               const isBuying = buying === item.id;
               const canAfford = currency >= item.price;

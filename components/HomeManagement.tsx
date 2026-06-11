@@ -7,7 +7,7 @@ import { glass } from "./utils/glassStyles";
 export interface HomeManagementProps {
   isHomeRoom: boolean;
   scores: ScoreEntry[];
-  myIdRef: React.RefObject<string | null>;
+  myId: string | null;
   onKickPlayer: (targetId: string) => void;
   onInvitePlayer: (targetName: string) => void;
   pendingInvite: { fromOwnerName: string; homeRoomId: string } | null;
@@ -16,12 +16,13 @@ export interface HomeManagementProps {
 }
 
 export default function HomeManagement({
-  isHomeRoom, scores, myIdRef,
+  isHomeRoom, scores, myId,
   onKickPlayer, onInvitePlayer,
   pendingInvite, onAcceptInvite, onDeclineInvite,
 }: HomeManagementProps) {
   const [visitorsOpen, setVisitorsOpen] = useState(false);
   const [inviteInput, setInviteInput] = useState("");
+  const visitors = scores.filter((s) => s.id !== myId);
 
   if (!isHomeRoom && !pendingInvite) return null;
 
@@ -86,10 +87,10 @@ export default function HomeManagement({
               </p>
 
               <div className="relative flex flex-col gap-1.5 max-h-40 overflow-y-auto">
-                {scores.filter((s) => s.id !== myIdRef.current).length === 0 ? (
+                {visitors.length === 0 ? (
                   <p className="text-xs" style={{ color: "rgba(255,210,140,0.5)" }}>No visitors right now</p>
                 ) : (
-                  scores.filter((s) => s.id !== myIdRef.current).map((s) => (
+                  visitors.map((s) => (
                     <div key={s.id} className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold truncate" style={{ color: "rgba(255,230,180,0.9)" }}>
                         {s.name}

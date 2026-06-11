@@ -14,7 +14,7 @@ export interface CharacterUpdateOpts {
   weapon: Weapon;
   inEditMode: boolean;
   isReloading: boolean;
-  camera: THREE.Camera;
+  camera: THREE.OrthographicCamera;
 }
 
 export class LocalCharacter {

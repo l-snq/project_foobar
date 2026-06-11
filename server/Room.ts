@@ -15,10 +15,6 @@ import {
 } from "./xp";
 import { RoomPhysics, PLAYER_RADIUS } from "./physics";
 
-const ADMIN_USER_IDS = new Set(
-  (process.env.ADMIN_USER_IDS ?? "").split(",").filter(Boolean),
-);
-
 const TICK_RATE = 20;
 const TICK_MS = 1000 / TICK_RATE;
 const DOOR_GRACE_TICKS = 40; // ~2 s of protection after joining
@@ -295,14 +291,6 @@ export class Room {
       const text = msg.text.trim().slice(0, MAX_CHAT_LEN);
       if (!text) return;
       this.broadcast({ type: "chat", fromId: id, fromName: client.name, text });
-    }
-
-    if (msg.type === "requestMapChange") {
-      // Trigger a map change via the server
-      this.pendingMapChange.add(id);
-      client.ws.send(JSON.stringify({ type: "changeMap", targetMapId: msg.targetMapId } satisfies ServerMessage));
-      this.remove(id);
-      return;
     }
 
     if (msg.type === "placeObject") {
