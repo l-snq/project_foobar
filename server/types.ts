@@ -72,13 +72,20 @@ export interface MapConfig {
 // action nodes perform effects. See server/logic.ts for the runtime.
 
 export type LogicNodeKind =
-  | "zoneEnter"   // trigger: pulse when a player enters a circular zone
-  | "zoneExit"    // trigger: pulse when a player leaves a circular zone
-  | "counter"     // logic: count pulses, fire onward every {threshold} pulses
-  | "teleport"    // action: move the triggering player to {x, z}
-  | "changeMap"   // action: send the triggering player to another map
-  | "setVisible"  // action: show/hide a placed object for everyone
-  | "giveReward"; // action: grant {xp, currency} to the triggering player
+  | "zoneEnter"    // trigger: pulse when a player enters a circular zone
+  | "zoneExit"     // trigger: pulse when a player leaves a circular zone
+  | "objectShot"   // trigger: pulse when {objectId} is hit by a projectile (ctx = shooter)
+  | "objectUsed"   // trigger: pulse when a player presses Use near {objectId} (ctx = user)
+  | "timer"        // trigger: pulse autonomously every {period} seconds (no player ctx)
+  | "counter"      // logic: count pulses, fire onward every {threshold} pulses
+  | "delay"        // logic: re-fire the pulse {seconds} later, preserving player ctx
+  | "once"         // logic: pass the first pulse only, then block until graph reload
+  | "teleport"     // action: move the triggering player to {x, z}
+  | "changeMap"    // action: send the triggering player to another map
+  | "setVisible"   // action: show/hide a placed object for everyone
+  | "giveReward"   // action: grant {xp, currency} to the triggering player
+  | "showMessage"  // action: toast {text} to the triggering player (or everyone if no ctx)
+  | "playSound";   // action: play a short {freq}Hz blip for everyone
 
 export interface LogicNode {
   id: string;
@@ -176,6 +183,7 @@ export type ClientMessage =
   | { type: "kickPlayer"; targetId: ClientId }
   | { type: "invitePlayer"; targetName: string }
   | { type: "saveLogic"; logic: LogicGraph }
+  | { type: "useObject" }
 
 export interface ScoreEntry {
   id: ClientId;
@@ -207,3 +215,5 @@ export type ServerMessage =
   // prediction across the jump; `logicEffect` carries world-visible effects.
   | { type: "teleport"; x: number; z: number }
   | { type: "logicEffect"; effect: "setVisible"; objectId: string; visible: boolean }
+  | { type: "logicEffect"; effect: "message"; text: string }
+  | { type: "logicEffect"; effect: "sound"; freq: number }

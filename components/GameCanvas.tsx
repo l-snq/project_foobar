@@ -65,6 +65,7 @@ export default function GameCanvas({ playerName, userId, onSignOut }: Props) {
   const [storeOpen, setStoreOpen] = useState(false);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [levelUpMsg, setLevelUpMsg] = useState<string | null>(null);
+  const [logicMessage, setLogicMessage] = useState<string | null>(null);
   const [inventoryRefreshKey, setInventoryRefreshKey] = useState(0);
   const [inEditMode, setInEditMode] = useState(false);
   const [inLogicMode, setInLogicMode] = useState(false);
@@ -177,6 +178,25 @@ export default function GameCanvas({ playerName, userId, onSignOut }: Props) {
     let localPlayerId: string | null = null;
     let debugVisible = false;
     let rHeld = false;
+
+    // Asset-free blip for the logic `playSound` effect.
+    let audioCtx: AudioContext | null = null;
+    function playBlip(freq: number) {
+      try {
+        audioCtx ??= new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+        const ctx = audioCtx;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "square";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.14, ctx.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.2);
+      } catch { /* audio unavailable */ }
+    }
 
     // ---- Reload ----
     function triggerReload() {
@@ -292,6 +312,12 @@ export default function GameCanvas({ playerName, userId, onSignOut }: Props) {
       if (k === "q") {
         rHeld = true;
         setEmoteWheelOpen(true);
+      }
+      if (k === "f") {
+        // Interact with the nearest placed object (fires its objectUsed logic triggers)
+        if (!inEditModeRef.current && !inLogicModeRef.current && !placed.isPlacing) {
+          send({ type: "useObject" });
+        }
       }
     }
     function onKeyUp(e: KeyboardEvent) {
@@ -494,6 +520,10 @@ export default function GameCanvas({ playerName, userId, onSignOut }: Props) {
 
         case "logicEffect":
           if (msg.effect === "setVisible") placed.setVisible(msg.objectId, msg.visible);
+          else if (msg.effect === "message") {
+            setLogicMessage(msg.text);
+            setTimeout(() => setLogicMessage(null), 4000);
+          } else if (msg.effect === "sound") playBlip(msg.freq);
           break;
 
         case "kicked":
@@ -650,6 +680,7 @@ export default function GameCanvas({ playerName, userId, onSignOut }: Props) {
       mapView.dispose();
       logicView.dispose();
       logicViewRef.current = null;
+      audioCtx?.close().catch(() => {});
       pendingWorldCaptureRef.current = null;
       inLogicModeRef.current = false;
       setInLogicMode(false);
@@ -803,6 +834,7 @@ export default function GameCanvas({ playerName, userId, onSignOut }: Props) {
         showHitFlash={showHitFlash}
         rampageAnnouncement={rampageAnnouncement}
         levelUpMsg={levelUpMsg}
+        logicMessage={logicMessage}
         emoteWheelOpen={emoteWheelOpen}
         scores={scores}
         onOpenStore={() => setStoreOpen(true)}

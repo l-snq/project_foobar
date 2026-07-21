@@ -40,6 +40,7 @@ export interface GameHUDProps {
   showHitFlash: boolean;
   rampageAnnouncement: string | null;
   levelUpMsg: string | null;
+  logicMessage: string | null;
   emoteWheelOpen: boolean;
 
   // World / scores
@@ -91,7 +92,7 @@ export default function GameHUD({
   mountRef, playerName, mapId, isHomeRoom, isAdmin, myId, onSignOut,
   cursorPos, health, maxHealth, onRampage, weapon, ammo, isReloading, isDead,
   xp, currency, level,
-  showHitFlash, rampageAnnouncement, levelUpMsg, emoteWheelOpen,
+  showHitFlash, rampageAnnouncement, levelUpMsg, logicMessage, emoteWheelOpen,
   scores, onOpenStore, onOpenInventory, onGoHome, onGoHub,
   onKickPlayer, onInvitePlayer, pendingInvite, onAcceptInvite, onDeclineInvite,
   inPlacementMode, inEditMode, isUploading,
@@ -153,6 +154,7 @@ export default function GameHUD({
             showHitFlash={showHitFlash}
             rampageAnnouncement={rampageAnnouncement}
             levelUpMsg={levelUpMsg}
+            logicMessage={logicMessage}
             emoteWheelOpen={emoteWheelOpen}
             inEditMode={inEditMode}
             inPlacementMode={inPlacementMode}

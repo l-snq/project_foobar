@@ -12,6 +12,7 @@ interface Props {
   showHitFlash: boolean;
   rampageAnnouncement: string | null;
   levelUpMsg: string | null;
+  logicMessage: string | null;
   emoteWheelOpen: boolean;
   inEditMode: boolean;
   inPlacementMode: boolean;
@@ -20,7 +21,7 @@ interface Props {
 
 export default function ViewportOverlays({
   cursorPos, weapon, isDead, showHitFlash,
-  rampageAnnouncement, levelUpMsg, emoteWheelOpen,
+  rampageAnnouncement, levelUpMsg, logicMessage, emoteWheelOpen,
   inEditMode, inPlacementMode, onExitPlacement,
 }: Props) {
   return (
@@ -59,6 +60,15 @@ export default function ViewportOverlays({
         <div className="absolute top-12 left-1/2 -translate-x-1/2 pointer-events-none z-30">
           <div className="bevel-out px-4 py-1.5 font-bold" style={{ color: "#000080", fontSize: 12 }}>
             ★ {levelUpMsg} ★
+          </div>
+        </div>
+      )}
+
+      {/* Logic message toast (from a showMessage node) */}
+      {logicMessage && (
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 pointer-events-none z-30">
+          <div className="bevel-out px-5 py-2 font-bold text-center" style={{ color: "#004000", fontSize: 15, maxWidth: 360 }}>
+            {logicMessage}
           </div>
         </div>
       )}

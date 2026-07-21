@@ -33,6 +33,7 @@ const RELOAD_MS = 1000;
 const RAMPAGE_KILLS = 10;
 const RAMPAGE_MAX_HEALTH = 200;
 const RAMPAGE_DAMAGE_MULT = 2;
+const USE_RADIUS = 2.5; // how close a player must be to "use" a placed object
 
 export const MAP_DIR = join(process.cwd(), "maps");
 
@@ -170,6 +171,21 @@ export class Room {
         if (!client || !client.userId) return;
         if (xp > 0) client.pendingXp += xp;
         if (currency > 0) client.pendingCurrency += currency;
+      },
+      showMessage: (clientId, text) => {
+        const msg = text.slice(0, 200);
+        if (!msg) return;
+        const effect: ServerMessage = { type: "logicEffect", effect: "message", text: msg };
+        const target = clientId ? this.clients.get(clientId) : null;
+        if (target) {
+          if (target.ws.readyState === 1) target.ws.send(JSON.stringify(effect));
+        } else {
+          this.broadcast(effect); // no triggering player (e.g. timer) → everyone
+        }
+      },
+      playSound: (freq) => {
+        const clamped = Math.max(80, Math.min(2000, freq));
+        this.broadcast({ type: "logicEffect", effect: "sound", freq: clamped });
       },
     });
   }
@@ -466,6 +482,21 @@ export class Room {
       this.rebuildLogic();
       this.saveMap();
     }
+
+    if (msg.type === "useObject") {
+      const state = this.states.get(id);
+      if (!state || state.health <= 0) return;
+      // Fire objectUsed triggers for the nearest placed object within reach.
+      let bestId: string | null = null;
+      let bestDist = USE_RADIUS;
+      for (const [oid, obj] of this.placedObjects) {
+        const dx = state.x - obj.x;
+        const dz = state.z - obj.z;
+        const d = Math.sqrt(dx * dx + dz * dz);
+        if (d < bestDist) { bestDist = d; bestId = oid; }
+      }
+      if (bestId) this.logic.onObjectUsed(bestId, id);
+    }
   }
 
   // ---- Game loop ----
@@ -579,6 +610,9 @@ export class Room {
       );
       if (hit !== null) {
         this.projectiles.delete(pid);
+        // If the projectile struck a placed object, fire its objectShot triggers.
+        const objId = this.physics.objectIdForCollider(hit.collider);
+        if (objId) this.logic.onObjectShot(objId, proj.ownerId);
         continue;
       }
 

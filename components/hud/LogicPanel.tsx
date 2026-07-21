@@ -18,11 +18,18 @@ type Category = "trigger" | "logic" | "action";
 const NODE_META: Record<LogicNodeKind, { label: string; cat: Category }> = {
   zoneEnter: { label: "Zone Enter", cat: "trigger" },
   zoneExit: { label: "Zone Exit", cat: "trigger" },
+  objectShot: { label: "Object Shot", cat: "trigger" },
+  objectUsed: { label: "Object Used", cat: "trigger" },
+  timer: { label: "Timer", cat: "trigger" },
   counter: { label: "Counter", cat: "logic" },
+  delay: { label: "Delay", cat: "logic" },
+  once: { label: "Once", cat: "logic" },
   teleport: { label: "Teleport", cat: "action" },
   changeMap: { label: "Change Map", cat: "action" },
   setVisible: { label: "Set Visible", cat: "action" },
   giveReward: { label: "Give Reward", cat: "action" },
+  showMessage: { label: "Show Message", cat: "action" },
+  playSound: { label: "Play Sound", cat: "action" },
 };
 
 const CAT_COLOR: Record<Category, string> = {
@@ -43,11 +50,18 @@ function defaultParams(kind: LogicNodeKind): Record<string, number | string | bo
   switch (kind) {
     case "zoneEnter":
     case "zoneExit": return { x: 0, z: 0, radius: 1.5 };
+    case "objectShot":
+    case "objectUsed": return {};
+    case "timer": return { period: 5 };
     case "counter": return { threshold: 3 };
+    case "delay": return { seconds: 1 };
+    case "once": return {};
     case "teleport": return { x: 0, z: 0 };
     case "changeMap": return { targetMapId: "hub" };
     case "setVisible": return { visible: true };
     case "giveReward": return { xp: 50, currency: 10 };
+    case "showMessage": return { text: "Hello!" };
+    case "playSound": return { freq: 660 };
   }
 }
 
@@ -305,14 +319,22 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
   );
 
   function nodeSummary(node: LogicNode): string {
+    const target = () => (node.objectId ? basename(objUrl(node.objectId)) : "(no target)");
     switch (node.kind) {
       case "zoneEnter":
       case "zoneExit": return `(${num(node.params.x)}, ${num(node.params.z)}) r${num(node.params.radius, 1.5)}`;
+      case "objectShot": return `shot: ${target()}`;
+      case "objectUsed": return `used: ${target()}`;
+      case "timer": return `every ${num(node.params.period, 5)}s`;
       case "counter": return `every ${num(node.params.threshold, 1)}`;
+      case "delay": return `wait ${num(node.params.seconds, 1)}s`;
+      case "once": return `first pulse only`;
       case "teleport": return `→ (${num(node.params.x)}, ${num(node.params.z)})`;
       case "changeMap": return `→ ${String(node.params.targetMapId ?? "")}`;
-      case "setVisible": return `${node.params.visible ? "show" : "hide"} ${node.objectId ? basename(objUrl(node.objectId)) : "(no target)"}`;
+      case "setVisible": return `${node.params.visible ? "show" : "hide"} ${target()}`;
       case "giveReward": return `+${num(node.params.xp)}xp +${num(node.params.currency)}c`;
+      case "showMessage": return `"${String(node.params.text ?? "").slice(0, 16)}"`;
+      case "playSound": return `♪ ${num(node.params.freq, 440)}Hz`;
     }
   }
 
@@ -333,6 +355,26 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
       </label>
     );
 
+    const objectSelect = (label: string) => (
+      <label className="flex items-center justify-between gap-2 mb-1" style={{ fontSize: 10 }}>
+        {label}
+        <select
+          className="retro-input" style={{ width: 150 }}
+          value={node.objectId ?? ""}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => mutate((g) => ({
+            ...g,
+            nodes: g.nodes.map((n) => (n.id === node.id ? { ...n, objectId: e.target.value || undefined } : n)),
+          }))}
+        >
+          <option value="">(pick an object)</option>
+          {listObjects().map((o) => (
+            <option key={o.id} value={o.id}>{basename(o.url)}</option>
+          ))}
+        </select>
+      </label>
+    );
+
     switch (node.kind) {
       case "zoneEnter":
       case "zoneExit":
@@ -346,8 +388,28 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
             {numField("Radius", "radius", 0.5, 1.5)}
           </>
         );
+      case "objectShot":
+        return (
+          <>
+            {objectSelect("When this object is shot")}
+            <p style={{ fontSize: 9, color: "#555" }}>Fires when a bullet hits the object.</p>
+          </>
+        );
+      case "objectUsed":
+        return (
+          <>
+            {objectSelect("When this object is used")}
+            <p style={{ fontSize: 9, color: "#555" }}>Fires when a player presses F within 2.5 units.</p>
+          </>
+        );
+      case "timer":
+        return numField("Period (seconds)", "period", 0.5, 5);
       case "counter":
         return numField("Fire every N pulses", "threshold", 1, 1);
+      case "delay":
+        return numField("Delay (seconds)", "seconds", 0.5, 1);
+      case "once":
+        return <p style={{ fontSize: 9, color: "#555" }}>Passes the first pulse only, then blocks.</p>;
       case "teleport":
         return (
           <>
@@ -373,23 +435,7 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
       case "setVisible":
         return (
           <>
-            <label className="flex items-center justify-between gap-2 mb-1" style={{ fontSize: 10 }}>
-              Target object
-              <select
-                className="retro-input" style={{ width: 150 }}
-                value={node.objectId ?? ""}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => mutate((g) => ({
-                  ...g,
-                  nodes: g.nodes.map((n) => (n.id === node.id ? { ...n, objectId: e.target.value || undefined } : n)),
-                }))}
-              >
-                <option value="">(pick an object)</option>
-                {listObjects().map((o) => (
-                  <option key={o.id} value={o.id}>{basename(o.url)}</option>
-                ))}
-              </select>
-            </label>
+            {objectSelect("Target object")}
             <label className="flex items-center gap-2" style={{ fontSize: 10 }}>
               <input
                 type="checkbox" checked={Boolean(node.params.visible)}
@@ -407,6 +453,20 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
             {numField("Currency", "currency", 5, 0)}
           </>
         );
+      case "showMessage":
+        return (
+          <label className="flex flex-col gap-1" style={{ fontSize: 10 }}>
+            Message text
+            <input
+              type="text" className="retro-input"
+              value={String(node.params.text ?? "")}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setParam(node.id, "text", e.target.value)}
+            />
+          </label>
+        );
+      case "playSound":
+        return numField("Frequency (Hz)", "freq", 20, 440);
     }
   }
 }

@@ -10,6 +10,9 @@ export class RoomPhysics {
   playerColliders = new Map<ClientId, RAPIER.Collider>();
   controllers = new Map<ClientId, RAPIER.KinematicCharacterController>();
   placedBodies = new Map<string, RAPIER.RigidBody[]>();
+  // Reverse lookup for projectile hits: collider handle → placed-object id.
+  private colliderToObject = new Map<number, string>();
+  private placedColliderHandles = new Map<string, number[]>();
 
   constructor(map: MapConfig) {
     this.world = this._buildWorld(map);
@@ -50,6 +53,13 @@ export class RoomPhysics {
 
   addPlacedBody(obj: PlacedObject): void {
     const bodies: RAPIER.RigidBody[] = [];
+    const handles: number[] = [];
+    const record = (body: RAPIER.RigidBody, desc: RAPIER.ColliderDesc) => {
+      const collider = this.world.createCollider(desc, body);
+      this.colliderToObject.set(collider.handle, obj.id);
+      handles.push(collider.handle);
+      bodies.push(body);
+    };
 
     if (obj.hitboxes && obj.hitboxes.length > 0) {
       const cos = Math.cos(obj.rotY);
@@ -58,26 +68,21 @@ export class RoomPhysics {
         const wx = obj.x + (hb.offsetX * cos + hb.offsetZ * sin) * obj.scale;
         const wz = obj.z + (-hb.offsetX * sin + hb.offsetZ * cos) * obj.scale;
         const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(wx, 0, wz));
-        if (hb.shape === "cylinder") {
-          this.world.createCollider(RAPIER.ColliderDesc.cylinder(PLAYER_HALF_HEIGHT, hb.halfW * obj.scale), body);
-        } else {
-          this.world.createCollider(RAPIER.ColliderDesc.cuboid(hb.halfW * obj.scale, PLAYER_HALF_HEIGHT, hb.halfD * obj.scale), body);
-        }
-        bodies.push(body);
+        record(body, hb.shape === "cylinder"
+          ? RAPIER.ColliderDesc.cylinder(PLAYER_HALF_HEIGHT, hb.halfW * obj.scale)
+          : RAPIER.ColliderDesc.cuboid(hb.halfW * obj.scale, PLAYER_HALF_HEIGHT, hb.halfD * obj.scale));
       }
     } else {
       const hx = obj.x + (obj.hitboxOffsetX ?? 0);
       const hz = obj.z + (obj.hitboxOffsetZ ?? 0);
       const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(hx, 0, hz));
-      if (obj.hitboxShape === "box") {
-        this.world.createCollider(RAPIER.ColliderDesc.cuboid(obj.hitboxRadius, PLAYER_HALF_HEIGHT, obj.hitboxRadius), body);
-      } else {
-        this.world.createCollider(RAPIER.ColliderDesc.cylinder(PLAYER_HALF_HEIGHT, obj.hitboxRadius), body);
-      }
-      bodies.push(body);
+      record(body, obj.hitboxShape === "box"
+        ? RAPIER.ColliderDesc.cuboid(obj.hitboxRadius, PLAYER_HALF_HEIGHT, obj.hitboxRadius)
+        : RAPIER.ColliderDesc.cylinder(PLAYER_HALF_HEIGHT, obj.hitboxRadius));
     }
 
     this.placedBodies.set(obj.id, bodies);
+    this.placedColliderHandles.set(obj.id, handles);
   }
 
   removePlacedBody(objectId: string): void {
@@ -86,6 +91,16 @@ export class RoomPhysics {
       for (const body of bodies) this.world.removeRigidBody(body);
       this.placedBodies.delete(objectId);
     }
+    const handles = this.placedColliderHandles.get(objectId);
+    if (handles) {
+      for (const h of handles) this.colliderToObject.delete(h);
+      this.placedColliderHandles.delete(objectId);
+    }
+  }
+
+  // Maps a collider hit by a ray back to its placed-object id (null for static geometry).
+  objectIdForCollider(collider: RAPIER.Collider): string | null {
+    return this.colliderToObject.get(collider.handle) ?? null;
   }
 
   addPlayer(id: ClientId, x: number, z: number): void {
@@ -126,6 +141,8 @@ export class RoomPhysics {
     this.playerBodies.clear();
     this.playerColliders.clear();
     this.placedBodies.clear();
+    this.colliderToObject.clear();
+    this.placedColliderHandles.clear();
     this.world = this._buildWorld(map);
     for (const [id, pos] of playerPositions) {
       this.addPlayer(id, pos.x, pos.z);
