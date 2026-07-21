@@ -3,22 +3,28 @@
 import React from "react";
 import type { Weapon, ScoreEntry } from "../server/types";
 import type { SelectedObjectInfo } from "./game/PlacedObjects";
-import type { ChatMessage } from "./hud/ChatPanel";
-import { glass } from "./utils/glassStyles";
-import Crosshair from "./hud/Crosshair";
-import HealthBar from "./hud/HealthBar";
-import WeaponSlot from "./hud/WeaponSlot";
-import EmoteWheel from "./hud/EmoteWheel";
-import Scoreboard from "./hud/Scoreboard";
-import OverlayEffects from "./hud/OverlayEffects";
-import PlacementControls from "./hud/PlacementControls";
-import FloorPaintPanel from "./hud/FloorPaintPanel";
-import ObjectEditPanel from "./hud/ObjectEditPanel";
-import ChatPanel from "./hud/ChatPanel";
+import type { ChatMessage } from "./hud/ChatBar";
+import TitleBar from "./hud/TitleBar";
+import PlayerPanel from "./hud/PlayerPanel";
+import WorldPanel from "./hud/WorldPanel";
+import ChatBar from "./hud/ChatBar";
+import ViewportOverlays from "./hud/ViewportOverlays";
+import InviteDialog from "./hud/InviteDialog";
 
 export interface GameHUDProps {
+  // The Three.js renderer mounts into this element
+  mountRef: React.RefObject<HTMLDivElement | null>;
+
+  // Identity / session
+  playerName: string;
+  mapId: string;
+  isHomeRoom: boolean;
+  isAdmin: boolean;
+  myId: string | null;
+  onSignOut: () => void;
+
   // Player status
-  cursorPos: { x: number; y: number };
+  cursorPos: { x: number; y: number } | null;
   health: number;
   maxHealth: number;
   onRampage: boolean;
@@ -26,26 +32,41 @@ export interface GameHUDProps {
   ammo: number;
   isReloading: boolean;
   isDead: boolean;
+  xp: number;
+  currency: number;
+  level: number;
 
   // Overlays
   showHitFlash: boolean;
-  showScoreboard: boolean;
-  scores: ScoreEntry[];
-  myId: string | null;
   rampageAnnouncement: string | null;
   levelUpMsg: string | null;
   emoteWheelOpen: boolean;
+
+  // World / scores
+  scores: ScoreEntry[];
+  onOpenStore: () => void;
+  onOpenInventory: (() => void) | null;
+  onGoHome: () => void;
+  onGoHub: () => void;
+  onKickPlayer: (targetId: string) => void;
+  onInvitePlayer: (targetName: string) => void;
+  pendingInvite: { fromOwnerName: string; homeRoomId: string } | null;
+  onAcceptInvite: () => void;
+  onDeclineInvite: () => void;
 
   // Placement / edit mode
   inPlacementMode: boolean;
   inEditMode: boolean;
   isUploading: boolean;
-  isAdmin: boolean;
   selectedObj: SelectedObjectInfo | null;
   onSelectedChange: (next: SelectedObjectInfo) => void;
   onDeleteObject: (id: string) => void;
   onExitPlacement: () => void;
   onFileSelected: (file: File) => Promise<void>;
+
+  // Logic editor
+  inLogicMode: boolean;
+  onToggleLogic: () => void;
 
   // Floor paint
   inFloorPaintMode: boolean;
@@ -56,92 +77,137 @@ export interface GameHUDProps {
   onBrushSizeChange: (s: number) => void;
 
   // Chat
-  chatOpen: boolean;
   chatMessages: ChatMessage[];
   chatInput: string;
   chatBoxRef: React.RefObject<HTMLDivElement | null>;
   chatInputRef: React.RefObject<HTMLInputElement | null>;
   setChatInput: (s: string) => void;
-  setChatOpen: (v: boolean) => void;
   onChatSubmit: () => void;
-  onOpenStore: () => void;
-  onOpenInventory: (() => void) | null;
 }
 
-export default function GameHUD(props: GameHUDProps) {
+// The retro game-client chrome. The 3D world renders inside a sunken
+// viewport cell; all status and tools live in the frame around it.
+export default function GameHUD({
+  mountRef, playerName, mapId, isHomeRoom, isAdmin, myId, onSignOut,
+  cursorPos, health, maxHealth, onRampage, weapon, ammo, isReloading, isDead,
+  xp, currency, level,
+  showHitFlash, rampageAnnouncement, levelUpMsg, emoteWheelOpen,
+  scores, onOpenStore, onOpenInventory, onGoHome, onGoHub,
+  onKickPlayer, onInvitePlayer, pendingInvite, onAcceptInvite, onDeclineInvite,
+  inPlacementMode, inEditMode, isUploading,
+  selectedObj, onSelectedChange, onDeleteObject, onExitPlacement, onFileSelected,
+  inLogicMode, onToggleLogic,
+  inFloorPaintMode, onToggleFloorPaint, brushColor, onBrushColorChange, brushSize, onBrushSizeChange,
+  chatMessages, chatInput, chatBoxRef, chatInputRef, setChatInput, onChatSubmit,
+}: GameHUDProps) {
   return (
-    <>
-      {props.weapon === "pistol" && !props.isDead && (
-        <Crosshair x={props.cursorPos.x} y={props.cursorPos.y} />
-      )}
+    <div className="retro-desktop w-full h-full p-2 select-none">
+      <div
+        className="bevel-out relative w-full h-full grid"
+        style={{
+          gridTemplateRows: "24px 1fr 148px",
+          gridTemplateColumns: "208px 1fr 232px",
+          gridTemplateAreas: `"title title title" "left view right" "chat chat chat"`,
+          padding: 3,
+          gap: 3,
+        }}
+      >
+        <div style={{ gridArea: "title" }}>
+          <TitleBar
+            mapId={mapId}
+            playerName={playerName}
+            onlineCount={scores.length}
+            onSignOut={onSignOut}
+          />
+        </div>
 
-      <HealthBar health={props.health} maxHealth={props.maxHealth} onRampage={props.onRampage} />
+        <div className="bevel-out min-h-0" style={{ gridArea: "left" }}>
+          <PlayerPanel
+            playerName={playerName}
+            health={health}
+            maxHealth={maxHealth}
+            onRampage={onRampage}
+            weapon={weapon}
+            ammo={ammo}
+            isReloading={isReloading}
+            xp={xp}
+            currency={currency}
+            level={level}
+          />
+        </div>
 
-      <WeaponSlot weapon={props.weapon} ammo={props.ammo} isReloading={props.isReloading} />
-
-      {props.emoteWheelOpen && <EmoteWheel />}
-
-      <OverlayEffects
-        showHitFlash={props.showHitFlash}
-        rampageAnnouncement={props.rampageAnnouncement}
-        levelUpMsg={props.levelUpMsg}
-        isDead={props.isDead}
-      />
-
-      {props.showScoreboard && <Scoreboard scores={props.scores} myId={props.myId} />}
-
-      <PlacementControls
-        inPlacementMode={props.inPlacementMode}
-        isUploading={props.isUploading}
-        isAdmin={props.isAdmin}
-        inFloorPaintMode={props.inFloorPaintMode}
-        onExitPlacement={props.onExitPlacement}
-        onFileSelected={props.onFileSelected}
-        onToggleFloorPaint={props.onToggleFloorPaint}
-      />
-
-      {props.inFloorPaintMode && (
-        <FloorPaintPanel
-          brushColor={props.brushColor}
-          brushSize={props.brushSize}
-          onBrushColorChange={props.onBrushColorChange}
-          onBrushSizeChange={props.onBrushSizeChange}
-        />
-      )}
-
-      {props.inEditMode && (
+        {/* Game viewport — the world is embedded here */}
         <div
-          className="absolute top-4 left-1/2 -translate-x-1/2 px-5 py-2 rounded-full text-sm font-bold tracking-widest uppercase pointer-events-none"
+          ref={mountRef}
+          className="bevel-in relative overflow-hidden min-h-0 min-w-0"
           style={{
-            ...glass.panelAmber,
-            color: "#ffe080",
-            textShadow: "0 0 10px rgba(255,160,0,0.6)",
+            gridArea: "view",
+            background: "linear-gradient(180deg, #0a3d8f 0%, #3b9fef 50%, #d4eeff 100%)",
+            cursor: weapon === "pistol" && !isDead ? "none" : "default",
           }}
         >
-          Edit Mode · Click to select · Drag gizmo to move · Del to delete · 2 to exit
+          <ViewportOverlays
+            cursorPos={cursorPos}
+            weapon={weapon}
+            isDead={isDead}
+            showHitFlash={showHitFlash}
+            rampageAnnouncement={rampageAnnouncement}
+            levelUpMsg={levelUpMsg}
+            emoteWheelOpen={emoteWheelOpen}
+            inEditMode={inEditMode}
+            inPlacementMode={inPlacementMode}
+            onExitPlacement={onExitPlacement}
+          />
         </div>
-      )}
 
-      {props.inEditMode && props.selectedObj && (
-        <ObjectEditPanel
-          selected={props.selectedObj}
-          onChange={props.onSelectedChange}
-          onDelete={props.onDeleteObject}
-        />
-      )}
+        <div className="bevel-out min-h-0" style={{ gridArea: "right" }}>
+          <WorldPanel
+            scores={scores}
+            myId={myId}
+            isHomeRoom={isHomeRoom}
+            isAdmin={isAdmin}
+            onOpenStore={onOpenStore}
+            onOpenInventory={onOpenInventory}
+            onGoHome={onGoHome}
+            onGoHub={onGoHub}
+            onKickPlayer={onKickPlayer}
+            onInvitePlayer={onInvitePlayer}
+            inLogicMode={inLogicMode}
+            onToggleLogic={onToggleLogic}
+            isUploading={isUploading}
+            onFileSelected={onFileSelected}
+            inFloorPaintMode={inFloorPaintMode}
+            onToggleFloorPaint={onToggleFloorPaint}
+            brushColor={brushColor}
+            onBrushColorChange={onBrushColorChange}
+            brushSize={brushSize}
+            onBrushSizeChange={onBrushSizeChange}
+            inEditMode={inEditMode}
+            selectedObj={selectedObj}
+            onSelectedChange={onSelectedChange}
+            onDeleteObject={onDeleteObject}
+          />
+        </div>
 
-      <ChatPanel
-        chatOpen={props.chatOpen}
-        chatMessages={props.chatMessages}
-        chatInput={props.chatInput}
-        chatBoxRef={props.chatBoxRef}
-        chatInputRef={props.chatInputRef}
-        setChatInput={props.setChatInput}
-        setChatOpen={props.setChatOpen}
-        onChatSubmit={props.onChatSubmit}
-        onOpenStore={props.onOpenStore}
-        onOpenInventory={props.onOpenInventory}
-      />
-    </>
+        <div className="bevel-out min-h-0" style={{ gridArea: "chat" }}>
+          <ChatBar
+            chatMessages={chatMessages}
+            chatInput={chatInput}
+            chatBoxRef={chatBoxRef}
+            chatInputRef={chatInputRef}
+            setChatInput={setChatInput}
+            onChatSubmit={onChatSubmit}
+          />
+        </div>
+
+        {pendingInvite && (
+          <InviteDialog
+            fromOwnerName={pendingInvite.fromOwnerName}
+            onAccept={onAcceptInvite}
+            onDecline={onDeclineInvite}
+          />
+        )}
+      </div>
+    </div>
   );
 }

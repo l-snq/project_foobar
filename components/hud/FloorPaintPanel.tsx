@@ -1,7 +1,5 @@
 "use client";
 
-import { glass } from "../utils/glassStyles";
-
 interface Props {
   brushColor: string;
   brushSize: number;
@@ -11,56 +9,36 @@ interface Props {
 
 export default function FloorPaintPanel({ brushColor, brushSize, onBrushColorChange, onBrushSizeChange }: Props) {
   return (
-    <div
-      className="absolute top-4 right-4 flex flex-col gap-3 p-4 rounded-2xl pointer-events-auto w-48"
-      style={glass.panelPurple}
-    >
-      <p className="text-xs font-bold tracking-widest uppercase"
-        style={{ color: "#d8aaff", textShadow: "0 0 8px rgba(180,80,255,0.6)" }}>
-        Floor Paint
-      </p>
+    <div className="retro-section">
+      <span className="retro-section-label">Floor paint</span>
 
-      <div className="flex flex-col gap-1">
-        <label className="text-xs font-semibold" style={{ color: "rgba(220,190,255,0.8)" }}>
-          Brush colour
-        </label>
-        <div className="flex items-center gap-2">
-          <input
-            type="color"
-            value={brushColor}
-            className="w-8 h-8 rounded-lg cursor-pointer border-0 bg-transparent"
-            onChange={(e) => onBrushColorChange(e.target.value)}
-          />
-          <span className="text-xs font-mono" style={{ color: "rgba(200,170,255,0.7)" }}>
-            {brushColor}
-          </span>
-        </div>
+      <label style={{ fontSize: 10 }}>Brush colour</label>
+      <div className="flex items-center gap-2 mb-2">
+        <input
+          type="color"
+          value={brushColor}
+          className="bevel-in w-8 h-7 cursor-pointer p-0.5"
+          onChange={(e) => onBrushColorChange(e.target.value)}
+        />
+        <span style={{ fontSize: 10, fontFamily: "'Courier New', monospace" }}>{brushColor}</span>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label className="text-xs font-semibold" style={{ color: "rgba(220,190,255,0.8)" }}>
-          Brush size
-        </label>
-        <div className="flex gap-1.5">
-          {[1, 2, 3, 5].map((s) => (
-            <button
-              key={s}
-              className="flex-1 py-1 rounded-lg text-xs font-bold"
-              style={{
-                background: brushSize === s ? "rgba(180,100,255,0.4)" : "rgba(180,100,255,0.1)",
-                border: `1px solid ${brushSize === s ? "rgba(200,140,255,0.7)" : "rgba(180,100,255,0.25)"}`,
-                color: brushSize === s ? "#e0b8ff" : "rgba(200,160,255,0.5)",
-              }}
-              onClick={() => onBrushSizeChange(s)}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
+      <label style={{ fontSize: 10 }}>Brush size</label>
+      <div className="flex gap-1 mt-0.5">
+        {[1, 2, 3, 5].map((s) => (
+          <button
+            key={s}
+            className="retro-btn flex-1 font-bold"
+            data-pressed={brushSize === s}
+            onClick={() => onBrushSizeChange(s)}
+          >
+            {s}
+          </button>
+        ))}
       </div>
 
-      <p className="text-[10px]" style={{ color: "rgba(200,160,255,0.5)" }}>
-        Click or drag to paint · Saved when you exit paint mode
+      <p className="mt-2" style={{ fontSize: 9, color: "#555" }}>
+        Click/drag in the viewport to paint. Saved when you exit paint mode.
       </p>
     </div>
   );

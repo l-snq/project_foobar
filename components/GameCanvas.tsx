@@ -4,22 +4,22 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import type { ServerMessage, ClientMessage, Weapon, ScoreEntry, StoreItem } from "../server/types";
+import type { ServerMessage, ClientMessage, Weapon, ScoreEntry, StoreItem, LogicGraph } from "../server/types";
 import { supabase } from "@/lib/supabase";
 import GameHUD from "./GameHUD";
-import HomeManagement from "./HomeManagement";
-import HUDProfile from "./HUDProfile";
 import StoreOverlay from "./StoreOverlay";
 import InventoryPicker from "./InventoryPicker";
+import LogicPanel from "./hud/LogicPanel";
 import { FloorPainter } from "./FloorPainter";
 import { LocalCharacter } from "./LocalCharacter";
 import { ClientPhysics } from "./game/ClientPhysics";
 import { MapView } from "./game/MapView";
+import { LogicView } from "./game/LogicView";
 import { PlacedObjects, type SelectedObjectInfo } from "./game/PlacedObjects";
 import { RemotePlayers } from "./game/RemotePlayers";
 import { Projectiles } from "./game/Projectiles";
 import { Explosions } from "./game/Explosions";
-import type { ChatMessage } from "./hud/ChatPanel";
+import type { ChatMessage } from "./hud/ChatBar";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "ws://localhost:3001";
 const MAX_HEALTH = 100;
@@ -31,9 +31,10 @@ const INPUT_SEND_INTERVAL = 1000 / 20;
 interface Props {
   playerName: string;
   userId: string;
+  onSignOut: () => void;
 }
 
-export default function GameCanvas({ playerName, userId }: Props) {
+export default function GameCanvas({ playerName, userId, onSignOut }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const placedRef = useRef<PlacedObjects | null>(null);
@@ -41,18 +42,17 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
-  const [chatOpen, setChatOpen] = useState(false);
   const [health, setHealth] = useState(MAX_HEALTH);
   const [maxHealth, setMaxHealth] = useState(MAX_HEALTH);
   const [onRampage, setOnRampage] = useState(false);
   const [weapon, setWeapon] = useState<Weapon>("none");
   const [isDead, setIsDead] = useState(false);
   const [showHitFlash, setShowHitFlash] = useState(false);
-  const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
+  // Cursor position relative to the game viewport; null while outside it
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [ammo, setAmmo] = useState(8);
   const [isReloading, setIsReloading] = useState(false);
   const [scores, setScores] = useState<ScoreEntry[]>([]);
-  const [showScoreboard, setShowScoreboard] = useState(false);
   const [rampageAnnouncement, setRampageAnnouncement] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [inPlacementMode, setInPlacementMode] = useState(false);
@@ -67,6 +67,8 @@ export default function GameCanvas({ playerName, userId }: Props) {
   const [levelUpMsg, setLevelUpMsg] = useState<string | null>(null);
   const [inventoryRefreshKey, setInventoryRefreshKey] = useState(0);
   const [inEditMode, setInEditMode] = useState(false);
+  const [inLogicMode, setInLogicMode] = useState(false);
+  const [logicGraph, setLogicGraph] = useState<LogicGraph>({ nodes: [], wires: [] });
   const [inFloorPaintMode, setInFloorPaintMode] = useState(false);
   const [brushColor, setBrushColor] = useState("#3a7d44");
   const [brushSize, setBrushSize] = useState(1);
@@ -77,6 +79,11 @@ export default function GameCanvas({ playerName, userId }: Props) {
   const chatInputRef = useRef<HTMLInputElement>(null);
   const chatBoxRef = useRef<HTMLDivElement>(null);
   const inEditModeRef = useRef(false);
+  const inLogicModeRef = useRef(false);
+  const logicViewRef = useRef<LogicView | null>(null);
+  // One-shot: while set, the next viewport ground-click reports its world x/z here.
+  const pendingWorldCaptureRef = useRef<((x: number, z: number) => void) | null>(null);
+  const logicSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Refs that the Three.js loop reads — avoids stale closures
   const weaponRef = useRef<Weapon>("none");
@@ -87,7 +94,12 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
-      setCursorPos({ x: e.clientX, y: e.clientY });
+      const rect = mountRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const inside = x >= 0 && y >= 0 && x <= rect.width && y <= rect.height;
+      setCursorPos(inside ? { x, y } : null);
     }
     window.addEventListener("mousemove", onMouseMove);
     return () => window.removeEventListener("mousemove", onMouseMove);
@@ -140,6 +152,8 @@ export default function GameCanvas({ playerName, userId }: Props) {
     const floorPainter = new FloorPainter(scene);
     floorPainterRef.current = floorPainter;
     const mapView = new MapView(scene, loader, floorPainter, mount);
+    const logicView = new LogicView(scene);
+    logicViewRef.current = logicView;
     const character = new LocalCharacter(scene, playerName);
     const remotes = new RemotePlayers(scene, character);
     const projectiles = new Projectiles(scene);
@@ -184,8 +198,8 @@ export default function GameCanvas({ playerName, userId }: Props) {
     const keys = { w: false, a: false, s: false, d: false, q: false, e: false };
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Tab") {
+        // Scoreboard is always visible in the side panel; just stop focus jumps
         e.preventDefault();
-        setShowScoreboard(true);
         return;
       }
       if (e.key === "x" || e.key === "X") {
@@ -209,11 +223,20 @@ export default function GameCanvas({ playerName, userId }: Props) {
         if (!next) placed.select(null);
         return;
       }
+      if (e.key === "3" && !rHeld) {
+        if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+        if (currentMapId !== `home_${userId}`) return;
+        const next = !inLogicModeRef.current;
+        inLogicModeRef.current = next;
+        setInLogicMode(next);
+        if (next) { inEditModeRef.current = false; setInEditMode(false); placed.select(null); }
+        else pendingWorldCaptureRef.current = null;
+        return;
+      }
       if (e.key === "t" || e.key === "T") {
         if ((e.target as HTMLElement)?.tagName === "INPUT") return;
         e.preventDefault();
-        setChatOpen(true);
-        setTimeout(() => chatInputRef.current?.focus(), 0);
+        chatInputRef.current?.focus();
         return;
       }
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
@@ -272,10 +295,6 @@ export default function GameCanvas({ playerName, userId }: Props) {
       }
     }
     function onKeyUp(e: KeyboardEvent) {
-      if (e.key === "Tab") {
-        setShowScoreboard(false);
-        return;
-      }
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
       const k = e.key.toLowerCase();
       if (k in keys) (keys as Record<string, boolean>)[k] = false;
@@ -303,6 +322,21 @@ export default function GameCanvas({ playerName, userId }: Props) {
       if (e.button !== 0) return;
       if (e.target !== renderer.domElement) return;
       if (placed.isGizmoActive) return;
+
+      // Logic-edit mode consumes viewport clicks: the only action is capturing a
+      // world point for a pending node location. No shooting/selecting here.
+      if (inLogicModeRef.current) {
+        const capture = pendingWorldCaptureRef.current;
+        if (capture) {
+          raycaster.setFromCamera(mouse, camera);
+          const hit = new THREE.Vector3();
+          if (raycaster.ray.intersectPlane(groundPlane, hit)) {
+            pendingWorldCaptureRef.current = null;
+            capture(hit.x, hit.z);
+          }
+        }
+        return;
+      }
 
       // Floor paint mode — painting is driven by tick(); just arm the flag here
       if (floorPainter.isActive) {
@@ -357,6 +391,7 @@ export default function GameCanvas({ playerName, userId }: Props) {
           setMyId(msg.yourId);
           mapView.apply(msg.map);
           physics.buildWorld(msg.map);
+          setLogicGraph(msg.map.logic ?? { nodes: [], wires: [] });
           break;
 
         case "snapshot": {
@@ -441,16 +476,28 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
         case "chat":
           setChatMessages((prev) => [...prev.slice(-49), { fromName: msg.fromName, text: msg.text, id: ++chatIdRef.current }]);
-          setChatOpen(true);
           break;
 
         case "changeMap":
           setCurrentMapId(msg.targetMapId);
           break;
 
+        case "teleport":
+          // A logic action moved us — snap local prediction across the jump.
+          serverPos.set(msg.x, serverPos.y, msg.z);
+          physics.teleportPlayer(msg.x, msg.z);
+          if (character.root) {
+            character.root.position.x = msg.x;
+            character.root.position.z = msg.z;
+          }
+          break;
+
+        case "logicEffect":
+          if (msg.effect === "setVisible") placed.setVisible(msg.objectId, msg.visible);
+          break;
+
         case "kicked":
           pushSystemMessage("You were kicked from this home.");
-          setChatOpen(true);
           setCurrentMapId("hub");
           break;
 
@@ -460,7 +507,6 @@ export default function GameCanvas({ playerName, userId }: Props) {
 
         case "inviteError":
           pushSystemMessage(msg.reason);
-          setChatOpen(true);
           break;
 
         case "profileSync":
@@ -602,6 +648,11 @@ export default function GameCanvas({ playerName, userId }: Props) {
       placed.dispose();
       placedRef.current = null;
       mapView.dispose();
+      logicView.dispose();
+      logicViewRef.current = null;
+      pendingWorldCaptureRef.current = null;
+      inLogicModeRef.current = false;
+      setInLogicMode(false);
       renderer.dispose();
       inEditModeRef.current = false;
       setInEditMode(false);
@@ -615,21 +666,58 @@ export default function GameCanvas({ playerName, userId }: Props) {
     if (chatBoxRef.current) chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
   }, [chatMessages]);
 
+  // Reflect the logic graph into in-world zone/teleport markers (shown only while editing)
+  useEffect(() => {
+    const view = logicViewRef.current;
+    if (!view) return;
+    view.sync(logicGraph);
+    view.setVisible(inLogicMode);
+  }, [logicGraph, inLogicMode]);
+
+  const toggleLogicMode = useCallback(() => {
+    const next = !inLogicModeRef.current;
+    inLogicModeRef.current = next;
+    setInLogicMode(next);
+    if (next) { inEditModeRef.current = false; setInEditMode(false); placedRef.current?.select(null); }
+    else pendingWorldCaptureRef.current = null;
+  }, []);
+
+  const closeLogicMode = useCallback(() => {
+    inLogicModeRef.current = false;
+    setInLogicMode(false);
+    pendingWorldCaptureRef.current = null;
+  }, []);
+
+  // Update the graph and debounce-persist it to the server (owner-gated saveLogic).
+  const updateLogicGraph = useCallback((next: LogicGraph) => {
+    setLogicGraph(next);
+    if (logicSaveTimerRef.current) clearTimeout(logicSaveTimerRef.current);
+    logicSaveTimerRef.current = setTimeout(() => { send({ type: "saveLogic", logic: next }); }, 400);
+  }, [send]);
+
+  const captureWorldPoint = useCallback((cb: (x: number, z: number) => void) => {
+    pendingWorldCaptureRef.current = cb;
+  }, []);
+
+  const listPlacedObjects = useCallback(() => placedRef.current?.listObjects() ?? [], []);
+
+  const goHome = useCallback(() => {
+    pushSystemMessage("Travelling home...");
+    setCurrentMapId(`home_${userId}`);
+  }, [pushSystemMessage, userId]);
+
+  const goHub = useCallback(() => {
+    pushSystemMessage("Returning to the hub...");
+    setCurrentMapId("hub");
+  }, [pushSystemMessage]);
+
   function submitChat() {
     const text = chatInput.trim();
     if (!text) return;
     setChatInput("");
 
-    if (text === "/home") {
-      pushSystemMessage("Travelling home...");
-      setCurrentMapId(`home_${userId}`);
-      return;
-    }
-    if (text === "/hub") {
-      pushSystemMessage("Returning to the hub...");
-      setCurrentMapId("hub");
-      return;
-    }
+    if (text === "/home") { goHome(); return; }
+    if (text === "/hub") { goHub(); return; }
 
     send({ type: "chat", text });
   }
@@ -692,14 +780,15 @@ export default function GameCanvas({ playerName, userId }: Props) {
   }, []);
 
   return (
-    <div
-      ref={mountRef}
-      className="w-full h-full relative"
-      style={{
-        background: "linear-gradient(180deg, #0a3d8f 0%, #1a6ec4 20%, #3b9fef 50%, #80c8f8 78%, #d4eeff 100%)",
-      }}
-    >
+    <div className="w-full h-full relative">
       <GameHUD
+        mountRef={mountRef}
+        playerName={playerName}
+        mapId={currentMapId}
+        isHomeRoom={isHomeRoom}
+        isAdmin={isAdmin}
+        myId={myId}
+        onSignOut={onSignOut}
         cursorPos={cursorPos}
         health={health}
         maxHealth={maxHealth}
@@ -708,52 +797,46 @@ export default function GameCanvas({ playerName, userId }: Props) {
         ammo={ammo}
         isReloading={isReloading}
         isDead={isDead}
+        xp={xp}
+        currency={currency}
+        level={level}
         showHitFlash={showHitFlash}
-        showScoreboard={showScoreboard}
-        scores={scores}
-        myId={myId}
         rampageAnnouncement={rampageAnnouncement}
         levelUpMsg={levelUpMsg}
         emoteWheelOpen={emoteWheelOpen}
+        scores={scores}
+        onOpenStore={() => setStoreOpen(true)}
+        onOpenInventory={isHomeRoom ? () => setInventoryOpen(true) : null}
+        onGoHome={goHome}
+        onGoHub={goHub}
+        onKickPlayer={kickPlayer}
+        onInvitePlayer={invitePlayer}
+        pendingInvite={pendingInvite}
+        onAcceptInvite={handleAcceptInvite}
+        onDeclineInvite={handleDeclineInvite}
         inPlacementMode={inPlacementMode}
         inEditMode={inEditMode}
         isUploading={isUploading}
-        isAdmin={isAdmin}
         selectedObj={selectedObj}
         onSelectedChange={handleSelectedChange}
         onDeleteObject={handleDeleteObject}
         onExitPlacement={handleExitPlacement}
         onFileSelected={handleFileSelected}
+        inLogicMode={inLogicMode}
+        onToggleLogic={toggleLogicMode}
         inFloorPaintMode={inFloorPaintMode}
         onToggleFloorPaint={handleToggleFloorPaint}
         brushColor={brushColor}
         onBrushColorChange={(c) => { setBrushColor(c); if (floorPainterRef.current) floorPainterRef.current.brushColor = c; }}
         brushSize={brushSize}
         onBrushSizeChange={(s) => { setBrushSize(s); if (floorPainterRef.current) floorPainterRef.current.brushSize = s; }}
-        chatOpen={chatOpen}
         chatMessages={chatMessages}
         chatInput={chatInput}
         chatBoxRef={chatBoxRef}
         chatInputRef={chatInputRef}
         setChatInput={setChatInput}
-        setChatOpen={setChatOpen}
         onChatSubmit={submitChat}
-        onOpenStore={() => setStoreOpen(true)}
-        onOpenInventory={isHomeRoom ? () => setInventoryOpen(true) : null}
       />
-
-      <HomeManagement
-        isHomeRoom={isHomeRoom}
-        scores={scores}
-        myId={myId}
-        onKickPlayer={kickPlayer}
-        onInvitePlayer={invitePlayer}
-        pendingInvite={pendingInvite}
-        onAcceptInvite={handleAcceptInvite}
-        onDeclineInvite={handleDeclineInvite}
-      />
-
-      <HUDProfile xp={xp} currency={currency} level={level} />
 
       <StoreOverlay
         open={storeOpen}
@@ -774,6 +857,15 @@ export default function GameCanvas({ playerName, userId }: Props) {
           onSelectItem={(item: StoreItem) => { placedRef.current?.enterStoreItemPlacement(item); setInventoryOpen(false); }}
         />
       )}
+
+      <LogicPanel
+        open={inLogicMode}
+        graph={logicGraph}
+        onChange={updateLogicGraph}
+        onClose={closeLogicMode}
+        onCaptureWorldPoint={captureWorldPoint}
+        listObjects={listPlacedObjects}
+      />
     </div>
   );
 }

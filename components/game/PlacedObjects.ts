@@ -94,6 +94,18 @@ export class PlacedObjects {
     return Array.from(this.entries.values(), (e) => e.data);
   }
 
+  // Lightweight list for the logic editor's object pickers (setVisible target, etc).
+  listObjects(): { id: string; url: string }[] {
+    return Array.from(this.entries.values(), (e) => ({ id: e.data.id, url: e.data.url }));
+  }
+
+  // Show/hide an object's mesh for everyone (driven by a logic `setVisible` effect).
+  // Visual-only in M1: the physics collider is left in place.
+  setVisible(id: string, visible: boolean) {
+    const entry = this.entries.get(id);
+    if (entry) entry.root.visible = visible;
+  }
+
   async add(rawData: PlacedObject) {
     if (this.entries.has(rawData.id)) return;
     // Migrate objects saved before hitbox fields were added

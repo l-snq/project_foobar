@@ -10,19 +10,6 @@ const ADMIN_IDS = new Set(
 
 const CATEGORIES = ["furniture", "decoration", "structure", "prop"];
 
-const glassPanel: React.CSSProperties = {
-  background: "linear-gradient(160deg, rgba(255,255,255,0.16) 0%, rgba(60,180,100,0.09) 100%)",
-  border: "1px solid rgba(255,255,255,0.28)",
-  backdropFilter: "blur(18px)",
-  boxShadow: "0 8px 30px rgba(0,120,50,0.4), inset 0 1px 0 rgba(255,255,255,0.35)",
-};
-
-const glassInput: React.CSSProperties = {
-  background: "linear-gradient(180deg, rgba(0,30,10,0.55) 0%, rgba(0,60,20,0.45) 100%)",
-  border: "1px solid rgba(80,220,120,0.45)",
-  boxShadow: "inset 0 2px 6px rgba(0,0,0,0.4), 0 1px 0 rgba(255,255,255,0.12)",
-};
-
 interface Props {
   userId: string;
 }
@@ -130,215 +117,148 @@ export default function AdminStorePanel({ userId }: Props) {
     }
   }
 
+  const label = { fontSize: 10, fontWeight: "bold" } as const;
+
   return (
     <>
-      {/* Trigger button */}
+      {/* Trigger button — sits in the title bar row, left of LOG OFF */}
       <button
-        className="absolute bottom-4 right-48 px-3 py-1.5 rounded-xl text-xs font-semibold z-50"
-        style={{
-          background: "rgba(0,0,0,0.3)",
-          border: "1px solid rgba(255,200,60,0.35)",
-          backdropFilter: "blur(10px)",
-          color: "rgba(255,220,120,0.8)",
-        }}
+        className="retro-btn absolute font-bold z-50"
+        style={{ top: 13, right: 80, padding: "1px 6px", fontSize: 10 }}
         onClick={() => { resetAdd(); setTab("add"); setOpen(true); }}
       >
-        Admin Store
+        ADMIN
       </button>
 
       {/* Modal */}
       {open && (
-        <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-auto"
-          style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}
+        <div
+          className="absolute inset-0 flex items-center justify-center z-50 pointer-events-auto"
+          style={{ background: "rgba(0,0,0,0.4)" }}
         >
-          <div
-            className="relative flex flex-col gap-4 w-[480px] max-h-[80vh] rounded-2xl p-6 overflow-hidden"
-            style={glassPanel}
-          >
-            {/* Sheen */}
-            <div className="absolute inset-x-0 top-0 h-1/3 rounded-t-2xl pointer-events-none"
-              style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 100%)" }} />
-
-            {/* Header */}
-            <div className="relative flex items-center justify-between">
-              <h2 className="text-sm font-bold tracking-widest uppercase"
-                style={{ color: "#a0ffb8", textShadow: "0 0 8px rgba(0,220,100,0.5)" }}>
-                Admin · Store
-              </h2>
+          <div className="bevel-out flex flex-col w-[440px] max-h-[80vh] p-0.5">
+            <div className="retro-titlebar flex items-center justify-between px-2 py-1 shrink-0">
+              <span>🔧 STORE ADMINISTRATION</span>
               <button
-                className="text-xs px-2 py-1 rounded-lg"
-                style={{ color: "rgba(200,255,220,0.5)", border: "1px solid rgba(80,220,120,0.2)" }}
+                className="retro-btn font-bold"
+                style={{ padding: "0px 5px", fontSize: 11 }}
                 onClick={() => { setOpen(false); resetAdd(); }}
               >
-                Esc
+                ✕
               </button>
             </div>
 
-            {/* Tabs */}
-            <div className="relative flex gap-2">
-              {(["add", "manage"] as const).map((t) => (
-                <button
-                  key={t}
-                  className="flex-1 py-1.5 rounded-xl text-xs font-bold capitalize"
-                  style={{
-                    background: tab === t ? "rgba(80,220,120,0.25)" : "rgba(80,220,120,0.07)",
-                    border: `1px solid ${tab === t ? "rgba(80,220,120,0.6)" : "rgba(80,220,120,0.2)"}`,
-                    color: tab === t ? "#a0ffb8" : "rgba(160,230,180,0.5)",
-                  }}
-                  onClick={() => switchTab(t)}
-                >
-                  {t === "add" ? "Add Item" : "Manage Items"}
-                </button>
-              ))}
-            </div>
-
-            {/* Add tab */}
-            {tab === "add" && (
-              <form className="relative flex flex-col gap-3" onSubmit={handleSubmit}>
-                <input
-                  type="text"
-                  placeholder="Item name"
-                  required
-                  maxLength={64}
-                  className="px-3 py-2 rounded-xl text-sm outline-none text-white placeholder-white/40"
-                  style={glassInput}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    placeholder="Price"
-                    required
-                    min={0}
-                    className="flex-1 px-3 py-2 rounded-xl text-sm outline-none text-white placeholder-white/40"
-                    style={glassInput}
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                  />
-                  <select
-                    className="flex-1 px-3 py-2 rounded-xl text-sm outline-none"
-                    style={{ ...glassInput, color: "rgba(200,255,220,0.9)" }}
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
+            <div className="p-2 flex flex-col gap-2" style={{ fontSize: 11 }}>
+              {/* Tabs */}
+              <div className="flex gap-1">
+                {(["add", "manage"] as const).map((t) => (
+                  <button
+                    key={t}
+                    className="retro-btn flex-1 font-bold"
+                    data-pressed={tab === t}
+                    onClick={() => switchTab(t)}
                   >
-                    {CATEGORIES.map((c) => (
-                      <option key={c} value={c} style={{ background: "#0a2e15" }}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold" style={{ color: "rgba(200,255,220,0.7)" }}>
-                    Model (.glb / .gltf) *
-                  </label>
-                  <input
-                    ref={modelRef}
-                    type="file"
-                    accept=".glb,.gltf"
-                    required
-                    className="text-xs file:mr-3 file:px-3 file:py-1 file:rounded-lg file:border-0 file:text-xs file:font-semibold"
-                    style={{
-                      color: "rgba(200,255,220,0.8)",
-                      // @ts-expect-error file selector pseudo-element not typed
-                      "--tw-file-bg": "rgba(80,220,120,0.15)",
-                    }}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold" style={{ color: "rgba(200,255,220,0.7)" }}>
-                    Thumbnail (optional)
-                  </label>
-                  <input
-                    ref={thumbRef}
-                    type="file"
-                    accept="image/*"
-                    className="text-xs"
-                    style={{ color: "rgba(200,255,220,0.6)" }}
-                  />
-                </div>
-
-                {errorMsg && (
-                  <p className="text-xs" style={{ color: "#ff8080" }}>{errorMsg}</p>
-                )}
-                {status === "success" && (
-                  <p className="text-xs font-semibold" style={{ color: "#5ef5a0" }}>Item added successfully.</p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={status === "uploading" || status === "success"}
-                  className="py-2 rounded-xl text-sm font-bold relative overflow-hidden disabled:opacity-50"
-                  style={{
-                    background: "linear-gradient(180deg, #6ef5a0 0%, #18d868 40%, #0a7a30 100%)",
-                    border: "1px solid rgba(120,255,160,0.5)",
-                    boxShadow: "0 4px 20px rgba(0,200,80,0.4), inset 0 1px 0 rgba(255,255,255,0.5)",
-                    color: "white",
-                    textShadow: "0 1px 3px rgba(0,60,20,0.6)",
-                  }}
-                >
-                  <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
-                    style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.4) 0%, transparent 100%)" }} />
-                  <span className="relative">
-                    {status === "uploading" ? "Uploading…" : "Add to Store"}
-                  </span>
-                </button>
-              </form>
-            )}
-
-            {/* Manage tab */}
-            {tab === "manage" && (
-              <div className="relative flex flex-col gap-2 overflow-y-auto max-h-96">
-                {manageLoading && (
-                  <p className="text-xs text-center py-6" style={{ color: "rgba(180,255,200,0.5)" }}>Loading…</p>
-                )}
-                {!manageLoading && manageItems.length === 0 && (
-                  <p className="text-xs text-center py-6" style={{ color: "rgba(180,255,200,0.4)" }}>No items in the store.</p>
-                )}
-                {manageItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center gap-3 px-3 py-2 rounded-xl"
-                    style={{
-                      background: "rgba(0,40,15,0.45)",
-                      border: "1px solid rgba(80,220,120,0.18)",
-                    }}
-                  >
-                    <div
-                      className="w-10 h-10 rounded-lg shrink-0 flex items-center justify-center overflow-hidden"
-                      style={{ background: "rgba(0,30,10,0.6)" }}
-                    >
-                      {item.thumbnail_url
-                        ? <img src={item.thumbnail_url} alt={item.name} className="w-full h-full object-contain" />
-                        : <span style={{ color: "rgba(100,200,130,0.3)", fontSize: 16 }}>▪</span>
-                      }
-                    </div>
-                    <div className="flex flex-col flex-1 min-w-0">
-                      <span className="text-xs font-semibold truncate" style={{ color: "rgba(220,255,235,0.9)" }}>
-                        {item.name}
-                      </span>
-                      <span className="text-[10px]" style={{ color: "rgba(150,220,170,0.5)" }}>
-                        {item.category} · {item.price.toLocaleString()} coins
-                      </span>
-                    </div>
-                    <button
-                      disabled={deleting === item.id}
-                      className="px-3 py-1 rounded-lg text-xs font-bold shrink-0 disabled:opacity-40"
-                      style={{
-                        background: "linear-gradient(180deg, rgba(255,80,80,0.22) 0%, rgba(180,0,0,0.18) 100%)",
-                        border: "1px solid rgba(255,100,100,0.4)",
-                        color: "#ff9090",
-                      }}
-                      onClick={() => handleDelete(item.id)}
-                    >
-                      {deleting === item.id ? "…" : "Delete"}
-                    </button>
-                  </div>
+                    {t === "add" ? "ADD ITEM" : "MANAGE ITEMS"}
+                  </button>
                 ))}
               </div>
-            )}
+
+              {/* Add tab */}
+              {tab === "add" && (
+                <form className="flex flex-col gap-2" onSubmit={handleSubmit}>
+                  <div className="flex flex-col gap-0.5">
+                    <label style={label}>Item name:</label>
+                    <input
+                      type="text" required maxLength={64}
+                      className="retro-input"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <div className="flex flex-col gap-0.5 flex-1">
+                      <label style={label}>Price:</label>
+                      <input
+                        type="number" required min={0}
+                        className="retro-input w-full"
+                        value={price}
+                        onChange={(e) => setPrice(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-0.5 flex-1">
+                      <label style={label}>Category:</label>
+                      <select
+                        className="retro-input w-full"
+                        value={category}
+                        onChange={(e) => setCategory(e.target.value)}
+                      >
+                        {CATEGORIES.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-0.5">
+                    <label style={label}>Model (.glb / .gltf) *</label>
+                    <input ref={modelRef} type="file" accept=".glb,.gltf" required style={{ fontSize: 10 }} />
+                  </div>
+
+                  <div className="flex flex-col gap-0.5">
+                    <label style={label}>Thumbnail (optional):</label>
+                    <input ref={thumbRef} type="file" accept="image/*" style={{ fontSize: 10 }} />
+                  </div>
+
+                  {errorMsg && <p style={{ fontSize: 10, color: "#b00000" }}>⚠ {errorMsg}</p>}
+                  {status === "success" && <p className="font-bold" style={{ fontSize: 10, color: "#006000" }}>Item added successfully.</p>}
+
+                  <button
+                    type="submit"
+                    disabled={status === "uploading" || status === "success"}
+                    className="retro-btn font-bold py-1.5 mt-1"
+                  >
+                    {status === "uploading" ? "UPLOADING…" : "ADD TO STORE"}
+                  </button>
+                </form>
+              )}
+
+              {/* Manage tab */}
+              {tab === "manage" && (
+                <div className="bevel-in flex flex-col gap-1 overflow-y-auto retro-scroll max-h-96 p-1.5" style={{ background: "#fff" }}>
+                  {manageLoading && (
+                    <p className="text-center py-6" style={{ fontSize: 11 }}>Loading<span className="retro-blink">…</span></p>
+                  )}
+                  {!manageLoading && manageItems.length === 0 && (
+                    <p className="text-center py-6" style={{ fontSize: 11, color: "#555" }}>No items in the store.</p>
+                  )}
+                  {manageItems.map((item) => (
+                    <div key={item.id} className="bevel-out flex items-center gap-2 px-2 py-1">
+                      <div className="bevel-in w-9 h-9 shrink-0 flex items-center justify-center overflow-hidden" style={{ background: "#dfdfdf" }}>
+                        {item.thumbnail_url
+                          ? <img src={item.thumbnail_url} alt={item.name} className="w-full h-full object-contain" />
+                          : <span style={{ color: "#888" }}>?</span>
+                        }
+                      </div>
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="font-bold truncate" style={{ fontSize: 10 }}>{item.name}</span>
+                        <span style={{ fontSize: 9, color: "#555" }}>
+                          {item.category} · ¢{item.price.toLocaleString()}
+                        </span>
+                      </div>
+                      <button
+                        disabled={deleting === item.id}
+                        className="retro-btn shrink-0 font-bold"
+                        style={{ fontSize: 9, color: "#b00000" }}
+                        onClick={() => handleDelete(item.id)}
+                      >
+                        {deleting === item.id ? "…" : "DELETE"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -63,6 +63,48 @@ export interface MapConfig {
   doors: DoorConfig[];
   waterZones: WaterZone[];
   groundPaintData?: string[][];  // per-tile hex colors, [row][col], dimensions = groundSize × groundSize
+  logic?: LogicGraph;            // data-driven trigger→action behavior graph, run server-side each tick
+}
+
+// ---- Logic graph (visual node-wiring behavior system) ----
+// A room's interactive behavior is a graph of nodes connected by wires, evaluated
+// in the server tick loop. Trigger nodes emit pulses, logic nodes transform them,
+// action nodes perform effects. See server/logic.ts for the runtime.
+
+export type LogicNodeKind =
+  | "zoneEnter"   // trigger: pulse when a player enters a circular zone
+  | "zoneExit"    // trigger: pulse when a player leaves a circular zone
+  | "counter"     // logic: count pulses, fire onward every {threshold} pulses
+  | "teleport"    // action: move the triggering player to {x, z}
+  | "changeMap"   // action: send the triggering player to another map
+  | "setVisible"  // action: show/hide a placed object for everyone
+  | "giveReward"; // action: grant {xp, currency} to the triggering player
+
+export interface LogicNode {
+  id: string;
+  kind: LogicNodeKind;
+  ex: number;   // node position in the 2D editor graph
+  ey: number;
+  // Node configuration. World-anchored kinds carry world coords here:
+  //   zoneEnter/zoneExit → { x, z, radius }
+  //   teleport           → { x, z }
+  //   changeMap          → { targetMapId }
+  //   counter            → { threshold }
+  //   setVisible         → { visible }
+  //   giveReward         → { xp, currency }
+  params: Record<string, number | string | boolean>;
+  objectId?: string; // link to a PlacedObject (e.g. setVisible target)
+}
+
+export interface LogicWire {
+  id: string;
+  from: string; // source node id
+  to: string;   // destination node id
+}
+
+export interface LogicGraph {
+  nodes: LogicNode[];
+  wires: LogicWire[];
 }
 
 // One collider shape extracted from GLTF "hitbox" group geometry.
@@ -133,6 +175,7 @@ export type ClientMessage =
   | { type: "refreshInventory" }
   | { type: "kickPlayer"; targetId: ClientId }
   | { type: "invitePlayer"; targetName: string }
+  | { type: "saveLogic"; logic: LogicGraph }
 
 export interface ScoreEntry {
   id: ClientId;
@@ -160,3 +203,7 @@ export type ServerMessage =
   | { type: "kicked" }
   | { type: "inviteReceived"; fromOwnerName: string; homeRoomId: string }
   | { type: "inviteError"; reason: string }
+  // Logic-graph effects. `teleport` targets one client so it can snap its local
+  // prediction across the jump; `logicEffect` carries world-visible effects.
+  | { type: "teleport"; x: number; z: number }
+  | { type: "logicEffect"; effect: "setVisible"; objectId: string; visible: boolean }

@@ -60,107 +60,62 @@ export default function StoreOverlay({ open, currency, onClose, onPurchaseComple
   return (
     <div
       className="absolute inset-0 flex items-center justify-center z-40 pointer-events-auto"
-      style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)" }}
+      style={{ background: "rgba(0,0,0,0.4)" }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
     >
-      <div
-        className="relative flex flex-col w-[640px] max-h-[80vh] rounded-2xl overflow-hidden"
-        style={{
-          background: "linear-gradient(160deg, rgba(255,255,255,0.14) 0%, rgba(60,180,100,0.08) 100%)",
-          border: "1px solid rgba(255,255,255,0.25)",
-          backdropFilter: "blur(20px)",
-          boxShadow: "0 12px 40px rgba(0,100,40,0.5), inset 0 1px 0 rgba(255,255,255,0.3)",
-        }}
-      >
-        {/* Sheen */}
-        <div className="absolute inset-x-0 top-0 h-24 pointer-events-none rounded-t-2xl"
-          style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, transparent 100%)" }} />
+      <div className="bevel-out flex flex-col w-[620px] max-h-[80vh] p-0.5">
+        {/* Title bar */}
+        <div className="retro-titlebar flex items-center justify-between px-2 py-1 shrink-0">
+          <span>🛒 CLUB2K ITEM SHOP</span>
+          <button className="retro-btn font-bold" style={{ padding: "0px 5px", fontSize: 11 }} onClick={onClose} title="Close [B]">
+            ✕
+          </button>
+        </div>
 
-        {/* Header */}
-        <div className="relative flex items-center justify-between px-6 py-4 shrink-0"
-          style={{ borderBottom: "1px solid rgba(80,220,120,0.2)" }}>
-          <h2 className="text-base font-bold tracking-widest uppercase"
-            style={{ color: "#a0ffb8", textShadow: "0 0 10px rgba(0,220,100,0.6)" }}>
-            Store
-          </h2>
-          <div className="flex items-center gap-4">
-            <span className="text-sm font-semibold"
-              style={{ color: "rgba(255,220,80,0.95)", textShadow: "0 0 8px rgba(200,160,0,0.5)" }}>
-              {currency.toLocaleString()} coins
-            </span>
-            <button
-              className="text-xs px-3 py-1 rounded-lg"
-              style={{ color: "rgba(200,255,220,0.6)", border: "1px solid rgba(80,220,120,0.25)" }}
-              onClick={onClose}
-            >
-              Close [B]
-            </button>
-          </div>
+        {/* Balance strip */}
+        <div className="bevel-in mx-1 mt-1 px-2 py-1 flex justify-between" style={{ fontSize: 11, background: "#fff" }}>
+          <span>Double-click nothing — single clicks only, it&apos;s {new Date().getFullYear()}.</span>
+          <span className="font-bold" style={{ fontFamily: "'Courier New', monospace", color: "#806000" }}>
+            BALANCE: ¢{currency.toLocaleString()}
+          </span>
         </div>
 
         {/* Grid */}
-        <div className="relative overflow-y-auto p-5">
+        <div className="overflow-y-auto retro-scroll p-2 m-1 bevel-in" style={{ background: "#fff" }}>
           {loading && (
-            <p className="text-center text-sm py-8" style={{ color: "rgba(180,255,200,0.5)" }}>
-              Loading…
-            </p>
+            <p className="text-center py-8" style={{ fontSize: 11 }}>Loading catalogue<span className="retro-blink">…</span></p>
           )}
           {items?.length === 0 && (
-            <p className="text-center text-sm py-8" style={{ color: "rgba(180,255,200,0.5)" }}>
-              No items in the store yet.
-            </p>
+            <p className="text-center py-8" style={{ fontSize: 11, color: "#555" }}>No items in the store yet.</p>
           )}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-2">
             {(items ?? []).map((item) => {
               const fb = feedback?.itemId === item.id ? feedback : null;
               const isBuying = buying === item.id;
               const canAfford = currency >= item.price;
               return (
-                <div
-                  key={item.id}
-                  className="flex flex-col gap-2 p-3 rounded-xl overflow-hidden"
-                  style={{
-                    background: "linear-gradient(160deg, rgba(255,255,255,0.1) 0%, rgba(40,120,70,0.08) 100%)",
-                    border: "1px solid rgba(80,220,120,0.2)",
-                  }}
-                >
-                  {/* Thumbnail */}
-                  <div
-                    className="w-full aspect-square rounded-lg flex items-center justify-center text-2xl"
-                    style={{ background: "rgba(0,40,15,0.5)" }}
-                  >
+                <div key={item.id} className="bevel-out flex flex-col gap-1 p-1.5">
+                  <div className="bevel-in w-full aspect-square flex items-center justify-center" style={{ background: "#dfdfdf" }}>
                     {item.thumbnail_url
-                      ? <img src={item.thumbnail_url} alt={item.name} className="w-full h-full object-contain rounded-lg" />
-                      : <span style={{ color: "rgba(100,200,130,0.3)" }}>▪</span>
+                      ? <img src={item.thumbnail_url} alt={item.name} className="w-full h-full object-contain" />
+                      : <span style={{ color: "#888", fontSize: 18 }}>?</span>
                     }
                   </div>
 
-                  <p className="text-xs font-semibold leading-tight" style={{ color: "rgba(220,255,235,0.9)" }}>
-                    {item.name}
-                  </p>
-                  <p className="text-[10px]" style={{ color: "rgba(150,220,170,0.5)" }}>
-                    {item.category}
-                  </p>
+                  <p className="font-bold leading-tight truncate" style={{ fontSize: 10 }} title={item.name}>{item.name}</p>
+                  <p style={{ fontSize: 9, color: "#555" }}>{item.category}</p>
 
                   {fb && (
-                    <p className="text-xs font-semibold" style={{ color: fb.ok ? "#5ef5a0" : "#ff8080" }}>
-                      {fb.msg}
-                    </p>
+                    <p className="font-bold" style={{ fontSize: 9, color: fb.ok ? "#006000" : "#b00000" }}>{fb.msg}</p>
                   )}
 
                   <button
                     disabled={isBuying || !canAfford || fb?.ok === true}
-                    className="mt-auto py-1.5 rounded-lg text-xs font-bold disabled:opacity-40"
-                    style={{
-                      background: canAfford
-                        ? "linear-gradient(180deg, rgba(255,220,60,0.3) 0%, rgba(180,120,0,0.25) 100%)"
-                        : "rgba(80,80,80,0.2)",
-                      border: `1px solid ${canAfford ? "rgba(255,200,60,0.5)" : "rgba(120,120,120,0.3)"}`,
-                      color: canAfford ? "rgba(255,230,100,0.95)" : "rgba(150,150,150,0.6)",
-                    }}
+                    className="retro-btn mt-auto font-bold"
+                    style={{ fontSize: 10 }}
                     onClick={() => handleBuy(item)}
                   >
-                    {isBuying ? "Buying…" : fb?.ok ? "Owned" : `${item.price.toLocaleString()} coins`}
+                    {isBuying ? "BUYING…" : fb?.ok ? "OWNED" : `BUY ¢${item.price.toLocaleString()}`}
                   </button>
                 </div>
               );

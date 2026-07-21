@@ -1,7 +1,6 @@
 "use client";
 
 import type { ScoreEntry } from "../../server/types";
-import { glass } from "../utils/glassStyles";
 
 interface Props {
   scores: ScoreEntry[];
@@ -10,38 +9,28 @@ interface Props {
 
 export default function Scoreboard({ scores, myId }: Props) {
   return (
-    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-      <div className="rounded-3xl px-7 py-5 min-w-72 relative overflow-hidden" style={glass.panelGreen}>
-        <div className="absolute inset-x-0 top-0 h-1/3 rounded-t-3xl pointer-events-none"
-          style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.2) 0%, transparent 100%)" }} />
-        <h2
-          className="relative text-center text-lg font-bold mb-3 tracking-widest uppercase"
-          style={{ color: "#a0ffb8", textShadow: "0 0 15px rgba(0,220,100,0.6)" }}
-        >
-          Scoreboard
-        </h2>
-        <table className="relative w-full text-sm">
-          <thead>
-            <tr style={{ color: "rgba(150,230,180,0.7)", borderBottom: "1px solid rgba(80,200,120,0.25)" }}>
-              <th className="text-left pb-1 font-semibold">Player</th>
-              <th className="text-center pb-1 font-semibold w-16">Kills</th>
-              <th className="text-center pb-1 font-semibold w-16">Deaths</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...scores]
-              .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
-              .map((s) => (
-                <tr key={s.id} style={{ color: s.id === myId ? "#7effc0" : "rgba(220,255,235,0.9)" }}>
-                  <td className="py-0.5">{s.name}</td>
-                  <td className="text-center font-bold" style={{ color: "#5ef5a0" }}>{s.kills}</td>
-                  <td className="text-center" style={{ color: "#ff8080" }}>{s.deaths}</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-        <p className="relative text-xs text-center mt-3" style={{ color: "rgba(150,220,170,0.5)" }}>Hold Tab to view</p>
-      </div>
+    <div className="retro-section">
+      <span className="retro-section-label">Players online</span>
+      <table className="w-full" style={{ fontSize: 10, fontFamily: "'Courier New', monospace" }}>
+        <thead>
+          <tr style={{ color: "#000060" }}>
+            <th className="text-left font-bold">NAME</th>
+            <th className="text-right font-bold w-7">K</th>
+            <th className="text-right font-bold w-7">D</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...scores]
+            .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
+            .map((s) => (
+              <tr key={s.id} style={{ background: s.id === myId ? "#000080" : "transparent", color: s.id === myId ? "#fff" : "#000" }}>
+                <td className="truncate max-w-0" style={{ width: "100%" }}>{s.id === myId ? "» " : ""}{s.name}</td>
+                <td className="text-right">{s.kills}</td>
+                <td className="text-right">{s.deaths}</td>
+              </tr>
+            ))}
+        </tbody>
+      </table>
     </div>
   );
 }

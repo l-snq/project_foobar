@@ -6,20 +6,7 @@ import { supabase } from "@/lib/supabase";
 type Tab = "signin" | "signup";
 type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid";
 
-const inputStyle: React.CSSProperties = {
-  background: "linear-gradient(180deg, rgba(0,30,10,0.55) 0%, rgba(0,60,20,0.45) 100%)",
-  border: "1px solid rgba(80,220,120,0.45)",
-  boxShadow: "inset 0 2px 6px rgba(0,0,0,0.4), 0 1px 0 rgba(255,255,255,0.12)",
-};
-
-const btnStyle: React.CSSProperties = {
-  background: "linear-gradient(180deg, #6ef5a0 0%, #18d868 40%, #0a7a30 100%)",
-  border: "1px solid rgba(120,255,160,0.5)",
-  boxShadow: "0 4px 20px rgba(0,200,80,0.5), inset 0 1px 0 rgba(255,255,255,0.55)",
-  textShadow: "0 1px 3px rgba(0,60,20,0.6)",
-};
-
-// Sign-in / sign-up panel. Successful auth is handled by the caller's
+// Sign-in / sign-up dialog. Successful auth is handled by the caller's
 // supabase.auth.onAuthStateChange subscription.
 export default function AuthScreen() {
   const [tab, setTab] = useState<Tab>("signin");
@@ -97,189 +84,153 @@ export default function AuthScreen() {
     // If session exists, onAuthStateChange → SIGNED_IN fires automatically
   }
 
-  return (
-    <main
-      className="w-screen h-screen flex items-center justify-center relative overflow-hidden"
-      style={{ background: "linear-gradient(160deg, #030f05 0%, #0a2e15 40%, #0a5c28 75%, #14a845 100%)" }}
-    >
-      {/* Background glow orbs */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-1/4 -left-20 w-[520px] h-[520px] rounded-full opacity-25"
-          style={{ background: "radial-gradient(circle, #5df598 0%, transparent 65%)" }} />
-        <div className="absolute bottom-1/4 -right-24 w-[420px] h-[420px] rounded-full opacity-20"
-          style={{ background: "radial-gradient(circle, #3be87a 0%, transparent 65%)" }} />
-        <div className="absolute top-2/3 left-1/3 w-64 h-64 rounded-full opacity-15"
-          style={{ background: "radial-gradient(circle, #a0ffc0 0%, transparent 65%)" }} />
-      </div>
+  const fieldRow = "flex flex-col gap-0.5";
+  const label = { fontSize: 10, fontWeight: "bold" } as const;
 
-      <div
-        className="relative flex flex-col gap-5 w-80 rounded-3xl overflow-hidden px-8 py-9"
+  return (
+    <main className="retro-desktop w-screen h-screen flex flex-col items-center justify-center gap-4 select-none">
+      {/* Wordmark */}
+      <h1
+        className="font-bold text-center"
         style={{
-          background: "linear-gradient(160deg, rgba(255,255,255,0.2) 0%, rgba(80,200,120,0.1) 100%)",
-          border: "1px solid rgba(255,255,255,0.35)",
-          backdropFilter: "blur(20px)",
-          boxShadow: "0 8px 40px rgba(0,140,60,0.5), inset 0 1px 0 rgba(255,255,255,0.45)",
+          fontSize: 42,
+          fontFamily: "'Courier New', monospace",
+          color: "var(--crt-green)",
+          textShadow: "0 0 8px rgba(0,255,100,0.7), 3px 3px 0 #003020",
+          letterSpacing: 4,
         }}
       >
-        <div className="absolute top-0 left-0 right-0 h-2/5 rounded-t-3xl pointer-events-none"
-          style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.22) 0%, transparent 100%)" }} />
+        ~ club2k ~
+      </h1>
 
-        <h1
-          className="relative text-white text-3xl font-bold text-center tracking-wide"
-          style={{ textShadow: "0 0 24px rgba(80,255,140,0.9), 0 2px 6px rgba(0,0,0,0.6)" }}
-        >
-          club2k
-        </h1>
-
-        {/* Tab switcher */}
-        <div
-          className="relative flex rounded-xl overflow-hidden"
-          style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(80,220,120,0.2)" }}
-        >
-          {(["signin", "signup"] as Tab[]).map((t) => (
-            <button
-              key={t}
-              className="flex-1 py-1.5 text-xs font-bold tracking-wide btn-glass"
-              style={{
-                background: tab === t ? "rgba(80,220,120,0.25)" : "transparent",
-                color: tab === t ? "#a0ffb8" : "rgba(150,220,170,0.5)",
-                borderRight: t === "signin" ? "1px solid rgba(80,220,120,0.2)" : "none",
-              }}
-              onClick={() => {
-                setTab(t);
-                setSiError("");
-                setSuError("");
-                setAwaitingConfirmation(false);
-              }}
-            >
-              {t === "signin" ? "Sign In" : "Sign Up"}
-            </button>
-          ))}
+      {/* Login dialog */}
+      <div className="bevel-out p-0.5" style={{ width: 340 }}>
+        <div className="retro-titlebar flex items-center justify-between px-2 py-1">
+          <span>🔑 CONNECT TO CLUB2K</span>
+          <span>—</span>
         </div>
 
-        {/* Sign In */}
-        {tab === "signin" && (
-          <form className="relative flex flex-col gap-3" onSubmit={handleSignIn}>
-            <input
-              type="email"
-              placeholder="Email"
-              required
-              autoFocus
-              className="px-4 py-2.5 rounded-xl text-white placeholder-white/40 outline-none text-sm font-medium"
-              style={inputStyle}
-              value={siEmail}
-              onChange={(e) => setSiEmail(e.target.value)}
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              required
-              className="px-4 py-2.5 rounded-xl text-white placeholder-white/40 outline-none text-sm font-medium"
-              style={inputStyle}
-              value={siPassword}
-              onChange={(e) => setSiPassword(e.target.value)}
-            />
-            {siError && (
-              <p className="text-xs" style={{ color: "#ff8080" }}>{siError}</p>
-            )}
-            <button
-              type="submit"
-              disabled={siLoading}
-              className="relative px-4 py-2.5 rounded-xl font-bold text-white disabled:opacity-50 overflow-hidden btn-aero"
-              style={btnStyle}
-            >
-              <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
-                style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.45) 0%, transparent 100%)" }} />
-              <span className="relative">{siLoading ? "Signing in…" : "Play"}</span>
-            </button>
-          </form>
-        )}
-
-        {/* Sign Up */}
-        {tab === "signup" && (
-          awaitingConfirmation ? (
-            <div className="relative flex flex-col gap-3 items-center text-center py-2">
-              <p className="text-2xl">📬</p>
-              <p className="text-sm font-semibold" style={{ color: "#a0ffb8" }}>Check your email</p>
-              <p className="text-xs leading-relaxed" style={{ color: "rgba(200,255,220,0.7)" }}>
-                We sent a confirmation link to <strong>{suEmail}</strong>. Click it to activate your account, then sign in.
-              </p>
+        <div className="p-3 flex flex-col gap-3" style={{ fontSize: 11 }}>
+          {/* Tabs */}
+          <div className="flex gap-1">
+            {(["signin", "signup"] as Tab[]).map((t) => (
               <button
-                className="text-xs underline mt-1 btn-glass rounded-lg px-2 py-1"
-                style={{ color: "rgba(150,220,170,0.6)" }}
-                onClick={() => { setAwaitingConfirmation(false); setTab("signin"); }}
+                key={t}
+                className="retro-btn flex-1 font-bold"
+                data-pressed={tab === t}
+                onClick={() => {
+                  setTab(t);
+                  setSiError("");
+                  setSuError("");
+                  setAwaitingConfirmation(false);
+                }}
               >
-                Back to sign in
+                {t === "signin" ? "SIGN IN" : "NEW ACCOUNT"}
               </button>
-            </div>
-          ) : (
-            <form className="relative flex flex-col gap-3" onSubmit={handleSignUp}>
-              <input
-                type="email"
-                placeholder="Email"
-                required
-                autoFocus
-                className="px-4 py-2.5 rounded-xl text-white placeholder-white/40 outline-none text-sm font-medium"
-                style={inputStyle}
-                value={suEmail}
-                onChange={(e) => setSuEmail(e.target.value)}
-              />
-              <input
-                type="password"
-                placeholder="Password (8+ chars)"
-                required
-                minLength={8}
-                className="px-4 py-2.5 rounded-xl text-white placeholder-white/40 outline-none text-sm font-medium"
-                style={inputStyle}
-                value={suPassword}
-                onChange={(e) => setSuPassword(e.target.value)}
-              />
-              {/* Username field with live availability indicator */}
-              <div className="relative">
+            ))}
+          </div>
+
+          {/* Sign In */}
+          {tab === "signin" && (
+            <form className="flex flex-col gap-2" onSubmit={handleSignIn}>
+              <div className={fieldRow}>
+                <label style={label}>E-mail address:</label>
                 <input
-                  type="text"
-                  placeholder="Username"
-                  required
-                  maxLength={24}
-                  className="w-full px-4 py-2.5 pr-9 rounded-xl text-white placeholder-white/40 outline-none text-sm font-medium"
-                  style={inputStyle}
-                  value={suUsername}
-                  onChange={(e) => handleUsernameChange(e.target.value)}
+                  type="email" required autoFocus
+                  className="retro-input"
+                  value={siEmail}
+                  onChange={(e) => setSiEmail(e.target.value)}
                 />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm select-none">
-                  {usernameStatus === "checking" && (
-                    <span style={{ color: "rgba(200,255,220,0.4)" }}>…</span>
-                  )}
-                  {usernameStatus === "available" && (
-                    <span style={{ color: "#5ef5a0" }}>✓</span>
-                  )}
-                  {(usernameStatus === "taken" || usernameStatus === "invalid") && (
-                    <span style={{ color: "#ff8080" }}>✗</span>
-                  )}
-                </span>
               </div>
-              {usernameStatus === "taken" && (
-                <p className="text-xs -mt-1.5" style={{ color: "#ff8080" }}>Username is already taken</p>
-              )}
-              {usernameStatus === "invalid" && (
-                <p className="text-xs -mt-1.5" style={{ color: "#ff8080" }}>2–24 characters, letters/numbers/underscores only</p>
-              )}
-              {suError && (
-                <p className="text-xs" style={{ color: "#ff8080" }}>{suError}</p>
-              )}
-              <button
-                type="submit"
-                disabled={suLoading || usernameStatus !== "available"}
-                className="relative px-4 py-2.5 rounded-xl font-bold text-white disabled:opacity-50 overflow-hidden btn-aero"
-                style={btnStyle}
-              >
-                <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-xl pointer-events-none"
-                  style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.45) 0%, transparent 100%)" }} />
-                <span className="relative">{suLoading ? "Creating account…" : "Create Account"}</span>
+              <div className={fieldRow}>
+                <label style={label}>Password:</label>
+                <input
+                  type="password" required
+                  className="retro-input"
+                  value={siPassword}
+                  onChange={(e) => setSiPassword(e.target.value)}
+                />
+              </div>
+              {siError && <p style={{ fontSize: 10, color: "#b00000" }}>⚠ {siError}</p>}
+              <button type="submit" disabled={siLoading} className="retro-btn font-bold py-1.5 mt-1">
+                {siLoading ? "CONNECTING…" : "▶ ENTER WORLD"}
               </button>
             </form>
-          )
-        )}
+          )}
+
+          {/* Sign Up */}
+          {tab === "signup" && (
+            awaitingConfirmation ? (
+              <div className="flex flex-col gap-2 items-center text-center py-2">
+                <p style={{ fontSize: 22 }}>📬</p>
+                <p className="font-bold">Check your email</p>
+                <p style={{ fontSize: 10 }}>
+                  We sent a confirmation link to <b>{suEmail}</b>.<br />
+                  Click it to activate your account, then sign in.
+                </p>
+                <button className="retro-btn mt-1" onClick={() => { setAwaitingConfirmation(false); setTab("signin"); }}>
+                  Back to sign in
+                </button>
+              </div>
+            ) : (
+              <form className="flex flex-col gap-2" onSubmit={handleSignUp}>
+                <div className={fieldRow}>
+                  <label style={label}>E-mail address:</label>
+                  <input
+                    type="email" required autoFocus
+                    className="retro-input"
+                    value={suEmail}
+                    onChange={(e) => setSuEmail(e.target.value)}
+                  />
+                </div>
+                <div className={fieldRow}>
+                  <label style={label}>Password (8+ chars):</label>
+                  <input
+                    type="password" required minLength={8}
+                    className="retro-input"
+                    value={suPassword}
+                    onChange={(e) => setSuPassword(e.target.value)}
+                  />
+                </div>
+                <div className={fieldRow}>
+                  <label style={label}>Username:</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text" required maxLength={24}
+                      className="retro-input flex-1"
+                      value={suUsername}
+                      onChange={(e) => handleUsernameChange(e.target.value)}
+                    />
+                    <span style={{ fontSize: 11, width: 14 }}>
+                      {usernameStatus === "checking" && "…"}
+                      {usernameStatus === "available" && <span style={{ color: "#006000", fontWeight: "bold" }}>✓</span>}
+                      {(usernameStatus === "taken" || usernameStatus === "invalid") && <span style={{ color: "#b00000", fontWeight: "bold" }}>✗</span>}
+                    </span>
+                  </div>
+                </div>
+                {usernameStatus === "taken" && <p style={{ fontSize: 10, color: "#b00000" }}>⚠ Username is already taken</p>}
+                {usernameStatus === "invalid" && <p style={{ fontSize: 10, color: "#b00000" }}>⚠ 2–24 characters, letters/numbers/underscores only</p>}
+                {suError && <p style={{ fontSize: 10, color: "#b00000" }}>⚠ {suError}</p>}
+                <button
+                  type="submit"
+                  disabled={suLoading || usernameStatus !== "available"}
+                  className="retro-btn font-bold py-1.5 mt-1"
+                >
+                  {suLoading ? "CREATING…" : "★ CREATE ACCOUNT"}
+                </button>
+              </form>
+            )
+          )}
+        </div>
+      </div>
+
+      {/* Neocities-style footer */}
+      <div className="text-center" style={{ fontSize: 10, color: "#3fae8a", fontFamily: "'Courier New', monospace" }}>
+        <p>best viewed at 1024×768 · 16-bit colour</p>
+        <p>
+          you are visitor № <span className="bevel-in px-1" style={{ background: "#000", color: "var(--crt-green)" }}>0042817</span>
+          {" "}· est. 2000 <span className="retro-blink">_</span>
+        </p>
       </div>
     </main>
   );

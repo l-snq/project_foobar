@@ -42,31 +42,14 @@ export default function Home() {
   }, []);
 
   if (view === "loading") {
-    return (
-      <main
-        className="w-screen h-screen"
-        style={{ background: "linear-gradient(160deg, #030f05 0%, #0a2e15 40%, #0a5c28 75%, #14a845 100%)" }}
-      />
-    );
+    return <main className="w-screen h-screen retro-desktop" />;
   }
 
   if (view === "game") {
     return (
-      <main className="w-screen h-screen overflow-hidden bg-black relative">
-        <GameCanvas playerName={username} userId={userId} />
+      <main className="w-screen h-screen overflow-hidden relative">
+        <GameCanvas playerName={username} userId={userId} onSignOut={() => supabase.auth.signOut()} />
         <AdminStorePanel userId={userId} />
-        <button
-          className="absolute top-4 right-4 px-3 py-1.5 rounded-xl text-xs font-semibold z-50 btn-glass"
-          style={{
-            background: "rgba(0,0,0,0.3)",
-            border: "1px solid rgba(255,255,255,0.15)",
-            backdropFilter: "blur(10px)",
-            color: "rgba(255,255,255,0.55)",
-          }}
-          onClick={() => supabase.auth.signOut()}
-        >
-          Sign Out
-        </button>
       </main>
     );
   }

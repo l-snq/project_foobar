@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import { saveHomeMap, upsertProfile, addXpAndCurrency, loadInventory } from "./db";
 import { getStoreItem } from "./storeCache";
+import { LogicRuntime } from "./logic";
 import {
   IDLE_XP_PER_TICK, XP_PER_KILL, XP_PER_OBJECT_PLACED,
   XP_FLUSH_TICKS, CURRENCY_PER_LEVEL,
@@ -58,6 +59,7 @@ interface Client {
   onRampage: boolean;
   joinedAtTick: number;
   pendingXp: number;
+  pendingCurrency: number;
   lastKnownLevel: number;
   ownedItemIds: Set<string>;
 }
@@ -80,6 +82,7 @@ export class Room {
   private scores = new Map<ClientId, ScoreEntry>();
   private projectiles = new Map<string, LiveProjectile>();
   private placedObjects = new Map<string, PlacedObject>();
+  private logic!: LogicRuntime;
   private tick = 0;
   private interval: ReturnType<typeof setInterval> | null = null;
 
@@ -123,9 +126,53 @@ export class Room {
         }
       } catch { /* start empty */ }
     }
+
+    this.rebuildLogic();
   }
 
   // ---- Room lifecycle ----
+
+  // (Re)builds the logic runtime from the current map graph. Called on construction
+  // and whenever the graph is saved. Hooks reuse existing room machinery.
+  private rebuildLogic() {
+    this.logic = new LogicRuntime(this.map.logic, {
+      teleport: (clientId, x, z) => {
+        const body = this.physics.playerBodies.get(clientId);
+        const state = this.states.get(clientId);
+        const client = this.clients.get(clientId);
+        if (!body || !state || !client) return;
+        const cx = Math.max(-this.bounds, Math.min(this.bounds, x));
+        const cz = Math.max(-this.bounds, Math.min(this.bounds, z));
+        body.setNextKinematicTranslation({ x: cx, y: 0, z: cz });
+        state.x = cx;
+        state.z = cz;
+        // Tell the client to snap its local prediction across the jump.
+        if (client.ws.readyState === 1) {
+          client.ws.send(JSON.stringify({ type: "teleport", x: cx, z: cz } satisfies ServerMessage));
+        }
+      },
+      changeMap: (clientId, mapId) => {
+        const client = this.clients.get(clientId);
+        if (!client || this.pendingMapChange.has(clientId)) return;
+        if (typeof mapId !== "string" || !mapId) return;
+        this.pendingMapChange.add(clientId);
+        if (client.ws.readyState === 1) {
+          client.ws.send(JSON.stringify({ type: "changeMap", targetMapId: mapId } satisfies ServerMessage));
+        }
+        this.remove(clientId);
+      },
+      setObjectVisible: (objectId, visible) => {
+        if (!this.placedObjects.has(objectId)) return;
+        this.broadcast({ type: "logicEffect", effect: "setVisible", objectId, visible });
+      },
+      giveReward: (clientId, xp, currency) => {
+        const client = this.clients.get(clientId);
+        if (!client || !client.userId) return;
+        if (xp > 0) client.pendingXp += xp;
+        if (currency > 0) client.pendingCurrency += currency;
+      },
+    });
+  }
 
   private saveMap() {
     if (this.isHome && this.ownerUserId) {
@@ -170,7 +217,7 @@ export class Room {
       inputX: 0, inputZ: 0, rotY: 0,
       weapon: "none", emote: null, joined: false, lastShotAt: 0, reloadingUntil: 0,
       killStreak: 0, onRampage: false, joinedAtTick: 0,
-      pendingXp: 0, lastKnownLevel: 1, ownedItemIds: new Set(),
+      pendingXp: 0, pendingCurrency: 0, lastKnownLevel: 1, ownedItemIds: new Set(),
     });
     const handshake: ServerMessage = { type: "handshake", yourId: id, tick: this.tick, map: this.map };
     ws.send(JSON.stringify(handshake));
@@ -411,6 +458,14 @@ export class Room {
       this.map = { ...this.map, groundPaintData: msg.groundPaintData };
       this.saveMap();
     }
+
+    if (msg.type === "saveLogic") {
+      if (this.isHome && client.userId !== this.ownerUserId) return;
+      if (!msg.logic || !Array.isArray(msg.logic.nodes) || !Array.isArray(msg.logic.wires)) return;
+      this.map = { ...this.map, logic: msg.logic };
+      this.rebuildLogic();
+      this.saveMap();
+    }
   }
 
   // ---- Game loop ----
@@ -497,6 +552,10 @@ export class Room {
         }
       }
     }
+
+    // 3b. Evaluate the logic graph against current player positions (same cadence
+    // and data as the door/water checks above).
+    this.logic.evaluate(this.states);
 
     // 4. Move projectiles + wall hit detection via ray cast
     for (const [pid, proj] of this.projectiles) {
@@ -603,13 +662,16 @@ export class Room {
 
   private async flushXp() {
     for (const client of this.clients.values()) {
-      if (!client.joined || !client.userId || client.pendingXp <= 0) continue;
+      if (!client.joined || !client.userId) continue;
+      if (client.pendingXp <= 0 && client.pendingCurrency <= 0) continue;
 
       const xpToFlush = client.pendingXp;
+      const currencyToFlush = client.pendingCurrency;
       client.pendingXp = 0;
+      client.pendingCurrency = 0;
 
       try {
-        const profile = await addXpAndCurrency(client.userId, xpToFlush, 0);
+        const profile = await addXpAndCurrency(client.userId, xpToFlush, currencyToFlush);
 
         if (profile.level > client.lastKnownLevel) {
           const levelsGained = profile.level - client.lastKnownLevel;
@@ -633,7 +695,9 @@ export class Room {
           } satisfies ServerMessage));
         }
       } catch (e) {
-        client.pendingXp += xpToFlush; // return xp on failure so it's retried next flush
+        // return xp/currency on failure so it's retried next flush
+        client.pendingXp += xpToFlush;
+        client.pendingCurrency += currencyToFlush;
         console.error(`[xp] flush failed for ${client.userId}:`, e);
       }
     }
