@@ -48,6 +48,13 @@ export class LogicView {
         marker.position.set(px, 0.45, pz);
         marker.rotation.y = Math.PI / 4;
         this.group.add(marker);
+      } else if (node.kind === "spawnNPC") {
+        const marker = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.4),
+          new THREE.MeshBasicMaterial({ color: 0xff4466, transparent: true, opacity: 0.8, wireframe: true }),
+        );
+        marker.position.set(px, 0.5, pz);
+        this.group.add(marker);
       }
     }
   }

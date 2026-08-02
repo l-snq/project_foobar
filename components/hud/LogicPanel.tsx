@@ -21,6 +21,8 @@ const NODE_META: Record<LogicNodeKind, { label: string; cat: Category }> = {
   objectShot: { label: "Object Shot", cat: "trigger" },
   objectUsed: { label: "Object Used", cat: "trigger" },
   timer: { label: "Timer", cat: "trigger" },
+  onStart: { label: "On Start", cat: "trigger" },
+  npcKilled: { label: "NPC Killed", cat: "trigger" },
   counter: { label: "Counter", cat: "logic" },
   delay: { label: "Delay", cat: "logic" },
   once: { label: "Once", cat: "logic" },
@@ -30,12 +32,13 @@ const NODE_META: Record<LogicNodeKind, { label: string; cat: Category }> = {
   giveReward: { label: "Give Reward", cat: "action" },
   showMessage: { label: "Show Message", cat: "action" },
   playSound: { label: "Play Sound", cat: "action" },
+  spawnNPC: { label: "Spawn NPC", cat: "action" },
 };
 
 const CAT_COLOR: Record<Category, string> = {
-  trigger: "#2e7d32",
-  logic: "#b8860b",
-  action: "#1565a0",
+  trigger: "var(--sage)",
+  logic: "var(--mustard)",
+  action: "var(--terracotta)",
 };
 
 const NODE_W = 150;
@@ -53,6 +56,8 @@ function defaultParams(kind: LogicNodeKind): Record<string, number | string | bo
     case "objectShot":
     case "objectUsed": return {};
     case "timer": return { period: 5 };
+    case "onStart": return {};
+    case "npcKilled": return {};
     case "counter": return { threshold: 3 };
     case "delay": return { seconds: 1 };
     case "once": return {};
@@ -62,6 +67,7 @@ function defaultParams(kind: LogicNodeKind): Record<string, number | string | bo
     case "giveReward": return { xp: 50, currency: 10 };
     case "showMessage": return { text: "Hello!" };
     case "playSound": return { freq: 660 };
+    case "spawnNPC": return { url: "", behavior: "shoot", health: 50, x: 0, z: 0 };
   }
 }
 
@@ -192,12 +198,14 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
     <div className="fixed inset-0 z-40" style={{ pointerEvents: "none" }}>
       <div
         className="bevel-out absolute flex flex-col"
-        style={{ pointerEvents: "auto", left: 12, top: 44, bottom: 160, width: 452, background: "var(--w95-face)" }}
+        style={{ pointerEvents: "auto", left: 12, top: 44, bottom: 160, width: 452, background: "var(--face)" }}
         onClick={() => { setSelectedNodeId(null); setWiringFrom(null); }}
       >
-        <div className="retro-titlebar flex items-center justify-between px-2 py-1">
-          <span className="font-bold" style={{ fontSize: 12 }}>🔌 LOGIC EDITOR</span>
-          <button className="retro-btn" style={{ fontSize: 11, padding: "0 6px" }} onClick={onClose}>✕</button>
+        <div className="retro-titlebar flex items-center gap-1.5 px-1.5 py-1">
+          <span className="retro-titlebar-glyph">⌄</span>
+          <span className="retro-titlebar-glyph">□</span>
+          <span className="flex-1 text-center" style={{ fontSize: 12 }}>logic editor</span>
+          <button className="retro-titlebar-glyph" onClick={onClose}>×</button>
         </div>
 
         <div className="p-2 flex flex-col gap-2 min-h-0 overflow-y-auto retro-scroll" style={{ fontSize: 11 }}>
@@ -219,7 +227,7 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
           </div>
 
           {/* Graph canvas */}
-          <div className="bevel-in" style={{ background: "#c8d0d4", width: CANVAS_W, alignSelf: "center" }}>
+          <div className="bevel-in" style={{ background: "var(--well-alt)", width: CANVAS_W, alignSelf: "center" }}>
             <svg
               ref={svgRef}
               width={CANVAS_W}
@@ -241,7 +249,7 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
                   <path
                     key={w.id}
                     d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`}
-                    stroke="#333" strokeWidth={2} fill="none"
+                    stroke="var(--ink-dim)" strokeWidth={2} fill="none"
                     style={{ cursor: "pointer" }}
                     onClick={(e) => { e.stopPropagation(); deleteWire(w.id); }}
                   />
@@ -257,29 +265,29 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
                   <g key={node.id} transform={`translate(${node.ex}, ${node.ey})`}>
                     <rect
                       width={NODE_W} height={NODE_H} rx={3}
-                      fill="#e8e8e8" stroke={sel ? "#000" : color} strokeWidth={sel ? 2.5 : 1.5}
+                      fill="var(--face)" stroke={sel ? "var(--ink)" : color} strokeWidth={sel ? 2.5 : 1.5}
                       style={{ cursor: "move" }}
                       onPointerDown={(e) => onNodePointerDown(e, node)}
                     />
                     <rect width={NODE_W} height={16} rx={3} fill={color} style={{ cursor: "move" }}
                       onPointerDown={(e) => onNodePointerDown(e, node)} />
-                    <text x={6} y={12} fill="#fff" fontSize={10} fontWeight={700} style={{ pointerEvents: "none" }}>
+                    <text x={6} y={12} fill="var(--well)" fontSize={10} fontWeight={700} style={{ pointerEvents: "none" }}>
                       {NODE_META[node.kind].label}
                     </text>
-                    <text x={6} y={34} fill="#333" fontSize={9} style={{ pointerEvents: "none" }}>
+                    <text x={6} y={34} fill="var(--ink-dim)" fontSize={9} style={{ pointerEvents: "none" }}>
                       {nodeSummary(node)}
                     </text>
                     {/* Input port */}
                     {hasInput(node.kind) && (
                       <circle cx={0} cy={NODE_H / 2} r={6}
-                        fill={wiringFrom ? "#44cc44" : "#fff"} stroke="#333" strokeWidth={1.5}
+                        fill={wiringFrom ? "var(--sage)" : "var(--well)"} stroke="var(--ink-dim)" strokeWidth={1.5}
                         style={{ cursor: "pointer" }}
                         onClick={(e) => onInputClick(e, node.id)} />
                     )}
                     {/* Output port */}
                     {hasOutput(node.kind) && (
                       <circle cx={NODE_W} cy={NODE_H / 2} r={6}
-                        fill={wiring ? "#44cc44" : "#fff"} stroke="#333" strokeWidth={1.5}
+                        fill={wiring ? "var(--sage)" : "var(--well)"} stroke="var(--ink-dim)" strokeWidth={1.5}
                         style={{ cursor: "pointer" }}
                         onClick={(e) => onOutputClick(e, node.id)} />
                     )}
@@ -290,10 +298,10 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
           </div>
 
           {/* Hints */}
-          {wiringFrom && <p style={{ fontSize: 10, color: "#1565a0" }}>Click a target node&apos;s input port to connect.</p>}
-          {capturing && <p style={{ fontSize: 10, color: "#2e7d32" }}>Click a spot in the world to set the location…</p>}
+          {wiringFrom && <p style={{ fontSize: 10, color: "var(--terracotta)" }}>Click a target node&apos;s input port to connect.</p>}
+          {capturing && <p style={{ fontSize: 10, color: "var(--sage)" }}>Click a spot in the world to set the location…</p>}
           {graph.nodes.length === 0 && (
-            <p style={{ fontSize: 10, color: "#555" }}>
+            <p style={{ fontSize: 10, color: "var(--ink-dim)" }}>
               Add a trigger (e.g. Zone Enter), an action (e.g. Teleport), then click the trigger&apos;s
               right port then the action&apos;s left port to wire them.
             </p>
@@ -306,7 +314,7 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
               {renderInspector(selected)}
               <button
                 className="retro-btn w-full mt-2"
-                style={{ color: "#a00", fontWeight: 700, fontSize: 10 }}
+                style={{ color: "var(--ui-danger)", fontWeight: 700, fontSize: 10 }}
                 onClick={(e) => { e.stopPropagation(); deleteNode(selected.id); }}
               >
                 DELETE NODE
@@ -326,6 +334,9 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
       case "objectShot": return `shot: ${target()}`;
       case "objectUsed": return `used: ${target()}`;
       case "timer": return `every ${num(node.params.period, 5)}s`;
+      case "onStart": return `on room start`;
+      case "npcKilled": return `on NPC killed`;
+      case "spawnNPC": return `${String(node.params.behavior ?? "idle")} ${node.params.url ? basename(String(node.params.url)) : "(no model)"}`;
       case "counter": return `every ${num(node.params.threshold, 1)}`;
       case "delay": return `wait ${num(node.params.seconds, 1)}s`;
       case "once": return `first pulse only`;
@@ -375,12 +386,30 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
       </label>
     );
 
+    const urlSelect = (label: string) => {
+      const urls = Array.from(new Set(listObjects().map((o) => o.url)));
+      return (
+        <label className="flex items-center justify-between gap-2 mb-1" style={{ fontSize: 10 }}>
+          {label}
+          <select
+            className="retro-input" style={{ width: 150 }}
+            value={String(node.params.url ?? "")}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setParam(node.id, "url", e.target.value)}
+          >
+            <option value="">(pick a model)</option>
+            {urls.map((u) => <option key={u} value={u}>{basename(u)}</option>)}
+          </select>
+        </label>
+      );
+    };
+
     switch (node.kind) {
       case "zoneEnter":
       case "zoneExit":
         return (
           <>
-            <p style={{ fontSize: 9, color: "#555" }}>Center: ({num(node.params.x)}, {num(node.params.z)})</p>
+            <p style={{ fontSize: 9, color: "var(--ink-dim)" }}>Center: ({num(node.params.x)}, {num(node.params.z)})</p>
             <button className="retro-btn w-full mb-1" style={{ fontSize: 10 }}
               onClick={(e) => { e.stopPropagation(); captureFor(node.id); }}>
               📍 Set zone center in world
@@ -392,28 +421,32 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
         return (
           <>
             {objectSelect("When this object is shot")}
-            <p style={{ fontSize: 9, color: "#555" }}>Fires when a bullet hits the object.</p>
+            <p style={{ fontSize: 9, color: "var(--ink-dim)" }}>Fires when a bullet hits the object.</p>
           </>
         );
       case "objectUsed":
         return (
           <>
             {objectSelect("When this object is used")}
-            <p style={{ fontSize: 9, color: "#555" }}>Fires when a player presses F within 2.5 units.</p>
+            <p style={{ fontSize: 9, color: "var(--ink-dim)" }}>Fires when a player presses F within 2.5 units.</p>
           </>
         );
       case "timer":
         return numField("Period (seconds)", "period", 0.5, 5);
+      case "onStart":
+        return <p style={{ fontSize: 9, color: "var(--ink-dim)" }}>Fires once when the room loads (or the graph is saved). Good for spawning NPCs / setting initial state.</p>;
+      case "npcKilled":
+        return <p style={{ fontSize: 9, color: "var(--ink-dim)" }}>Fires whenever an NPC dies; the killer (if a player) is carried as context.</p>;
       case "counter":
         return numField("Fire every N pulses", "threshold", 1, 1);
       case "delay":
         return numField("Delay (seconds)", "seconds", 0.5, 1);
       case "once":
-        return <p style={{ fontSize: 9, color: "#555" }}>Passes the first pulse only, then blocks.</p>;
+        return <p style={{ fontSize: 9, color: "var(--ink-dim)" }}>Passes the first pulse only, then blocks.</p>;
       case "teleport":
         return (
           <>
-            <p style={{ fontSize: 9, color: "#555" }}>Destination: ({num(node.params.x)}, {num(node.params.z)})</p>
+            <p style={{ fontSize: 9, color: "var(--ink-dim)" }}>Destination: ({num(node.params.x)}, {num(node.params.z)})</p>
             <button className="retro-btn w-full" style={{ fontSize: 10 }}
               onClick={(e) => { e.stopPropagation(); captureFor(node.id); }}>
               📍 Set destination in world
@@ -467,6 +500,33 @@ export default function LogicPanel({ open, graph, onChange, onClose, onCaptureWo
         );
       case "playSound":
         return numField("Frequency (Hz)", "freq", 20, 440);
+      case "spawnNPC":
+        return (
+          <>
+            {urlSelect("Model")}
+            <label className="flex items-center justify-between gap-2 mb-1" style={{ fontSize: 10 }}>
+              Behavior
+              <select
+                className="retro-input" style={{ width: 110 }}
+                value={String(node.params.behavior ?? "idle")}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setParam(node.id, "behavior", e.target.value)}
+              >
+                <option value="idle">Idle</option>
+                <option value="patrol">Patrol</option>
+                <option value="chase">Chase</option>
+                <option value="shoot">Shoot</option>
+              </select>
+            </label>
+            {numField("Health", "health", 10, 50)}
+            <p style={{ fontSize: 9, color: "var(--ink-dim)" }}>Spawn: ({num(node.params.x)}, {num(node.params.z)})</p>
+            <button className="retro-btn w-full" style={{ fontSize: 10 }}
+              onClick={(e) => { e.stopPropagation(); captureFor(node.id); }}>
+              📍 Set spawn point in world
+            </button>
+            {!node.params.url && <p style={{ fontSize: 9, color: "var(--ui-danger)" }}>Place a GLB in your home first, then pick it as the model.</p>}
+          </>
+        );
     }
   }
 }

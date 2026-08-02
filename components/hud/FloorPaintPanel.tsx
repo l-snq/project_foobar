@@ -37,7 +37,7 @@ export default function FloorPaintPanel({ brushColor, brushSize, onBrushColorCha
         ))}
       </div>
 
-      <p className="mt-2" style={{ fontSize: 9, color: "#555" }}>
+      <p className="mt-2" style={{ fontSize: 9, color: "var(--ink-dim)" }}>
         Click/drag in the viewport to paint. Saved when you exit paint mode.
       </p>
     </div>

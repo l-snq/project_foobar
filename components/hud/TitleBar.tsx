@@ -9,14 +9,15 @@ interface Props {
 
 export default function TitleBar({ mapId, playerName, onlineCount, onSignOut }: Props) {
   return (
-    <div className="retro-titlebar flex items-center gap-2 px-2 h-full select-none">
-      <span className="text-[13px]">▣</span>
-      <span>CLUB2K v1.0</span>
-      <span className="opacity-60">::</span>
-      <span className="font-normal opacity-90">zone: {mapId}</span>
+    <div className="retro-titlebar flex items-center gap-1.5 px-1.5 h-full select-none">
+      <span className="retro-titlebar-glyph">⌄</span>
+      <span className="retro-titlebar-glyph">□</span>
+      <span className="ml-1">club2k v1.0</span>
+      <span style={{ color: "var(--ink-dim)" }}>::</span>
+      <span className="font-normal" style={{ color: "var(--ink-dim)" }}>zone: {mapId}</span>
       <span className="flex-1" />
-      <span className="font-normal opacity-90 hidden sm:inline">
-        logged in as <b>{playerName}</b> · {onlineCount} online
+      <span className="font-normal hidden sm:inline" style={{ color: "var(--ink-dim)" }}>
+        logged in as <b style={{ color: "var(--ink)" }}>{playerName}</b> · {onlineCount} online
       </span>
       <button
         className="retro-btn font-bold"

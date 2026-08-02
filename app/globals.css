@@ -1,127 +1,180 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* ---- Paper / desktop ---- */
+  --paper: #e9d6b8;          /* tan grid-paper backdrop */
+  --paper-line: #c9836c;     /* terracotta grid rule */
 
-  /* Win9x chrome palette */
-  --w95-face: #c0c0c0;
-  --w95-light: #ffffff;
-  --w95-shadow: #808080;
-  --w95-dark: #404040;
-  --w95-title-a: #000080;
-  --w95-title-b: #1084d0;
-  --w95-text: #000000;
-  --w95-disabled: #808080;
-  --crt-green: #00ff66;
-  --crt-amber: #ffcc00;
-  --crt-red: #ff3333;
+  /* ---- Window chrome ---- */
+  --face: #e6e0d6;           /* window body */
+  --face-alt: #d8d1c5;       /* title bars, raised alt surfaces */
+  --well: #f6f2ea;           /* inputs, list wells, readouts */
+  --well-alt: #ded7cb;       /* empty thumbnails, placeholder wells */
+  --line: #2b2521;           /* hairline borders — near-black */
+  --line-soft: #b0a595;      /* interior dividers */
+  --ink: #2b2521;            /* primary text */
+  --ink-dim: #7d7264;        /* secondary text */
+
+  /* ---- Accents ---- */
+  --terracotta: #b04a2e;
+  --peach: #e59468;
+  --sage: #6d8f5b;
+  --mustard: #b8862c;
+
+  /* ---- Semantic UI roles ---- */
+  --ui-accent: var(--terracotta);
+  --ui-danger: #a83a24;
+  --ui-success: #55713f;
+  --ui-gold: #9c7127;
+  --ui-meter-track: #cfc6b8;
+
+  /* Status readouts. Names kept from the CRT era; values are now paper-warm
+     so meters and chat sit in the same palette as everything else. */
+  --crt-green: var(--sage);
+  --crt-amber: var(--mustard);
+  --crt-red: var(--terracotta);
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+
+  /* Typewriter for UI text, serif for window titles — as in the reference. */
+  --font-ui: "Courier New", Courier, monospace;
+  --font-title: Georgia, "Times New Roman", serif;
+
+  /* The crisp offset drop shadow that makes windows read as cut paper. */
+  --drop: 2px 2px 0 rgba(43, 37, 33, 0.28);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-ui);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Verdana, Tahoma, "MS Sans Serif", Arial, sans-serif;
+  font-family: var(--font-ui);
   margin: 0;
   padding: 0;
   overflow: hidden;
 }
 
-/* ---- Retro (circa-2000) UI kit ---- */
+/* ---- Paper UI kit ----
+   Class names are inherited from the previous Win9x kit so every component
+   keeps working; only the visual language changed — thin ink hairlines and
+   hard offset shadows in place of 3D bevels. */
 
-/* Tiled "desktop" backdrop behind everything */
+/* Tan grid paper behind everything */
 .retro-desktop {
-  background-color: #00231c;
+  background-color: var(--paper);
   background-image:
-    radial-gradient(rgba(0, 255, 170, 0.10) 1px, transparent 1.5px),
-    radial-gradient(rgba(0, 255, 170, 0.06) 1px, transparent 1.5px);
-  background-size: 24px 24px, 24px 24px;
-  background-position: 0 0, 12px 12px;
+    repeating-linear-gradient(
+      to right,
+      var(--paper-line) 0 1px,
+      transparent 1px 44px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      var(--paper-line) 0 1px,
+      transparent 1px 44px
+    );
+  background-position: 0 0;
 }
 
-/* Raised chrome (buttons, frames, panels) */
+/* Raised surface (windows, buttons, frames) */
 .bevel-out {
-  background: var(--w95-face);
-  border-top: 2px solid var(--w95-light);
-  border-left: 2px solid var(--w95-light);
-  border-bottom: 2px solid var(--w95-dark);
-  border-right: 2px solid var(--w95-dark);
+  background: var(--face);
+  border: 1px solid var(--line);
+  box-shadow: var(--drop);
 }
 
-/* Sunken wells (inputs, viewport, readouts) */
+/* Sunken well (inputs, viewport, readouts) */
 .bevel-in {
-  background: var(--w95-face);
-  border-top: 2px solid var(--w95-dark);
-  border-left: 2px solid var(--w95-dark);
-  border-bottom: 2px solid var(--w95-light);
-  border-right: 2px solid var(--w95-light);
+  background: var(--well);
+  border: 1px solid var(--line);
+  box-shadow: inset 1px 1px 0 rgba(43, 37, 33, 0.12);
 }
 
-/* Thin grooved separator frame */
+/* Thin double-rule frame */
 .bevel-groove {
-  border: 2px groove var(--w95-light);
+  border: 1px solid var(--line-soft);
+  outline: 1px solid var(--line-soft);
+  outline-offset: 2px;
 }
 
 .retro-titlebar {
-  background: linear-gradient(90deg, var(--w95-title-a) 0%, var(--w95-title-b) 100%);
-  color: #ffffff;
+  background: var(--face-alt);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-family: var(--font-title);
   font-weight: bold;
   font-size: 11px;
-  letter-spacing: 0.5px;
-  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.6);
+  letter-spacing: 1.5px;
+}
+
+/* Small chevron/box glyphs that sit at the left of a title bar */
+.retro-titlebar-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 11px;
+  border: 1px solid var(--line);
+  background: var(--well);
+  font-family: var(--font-ui);
+  font-size: 8px;
+  line-height: 1;
+  letter-spacing: 0;
 }
 
 .retro-btn {
-  background: var(--w95-face);
-  border-top: 2px solid var(--w95-light);
-  border-left: 2px solid var(--w95-light);
-  border-bottom: 2px solid var(--w95-dark);
-  border-right: 2px solid var(--w95-dark);
-  color: var(--w95-text);
-  font-family: Verdana, Tahoma, "MS Sans Serif", Arial, sans-serif;
+  background: var(--face);
+  border: 1px solid var(--line);
+  box-shadow: 2px 2px 0 rgba(43, 37, 33, 0.25);
+  color: var(--ink);
+  font-family: var(--font-ui);
   font-size: 11px;
   line-height: 1;
+  letter-spacing: 0.5px;
   padding: 4px 8px;
   cursor: pointer;
   user-select: none;
 }
+.retro-btn:hover:not(:disabled) {
+  background: var(--face-alt);
+}
 .retro-btn:active:not(:disabled),
 .retro-btn[data-pressed="true"] {
-  border-top: 2px solid var(--w95-dark);
-  border-left: 2px solid var(--w95-dark);
-  border-bottom: 2px solid var(--w95-light);
-  border-right: 2px solid var(--w95-light);
-  padding: 5px 7px 3px 9px;
+  background: var(--peach);
+  box-shadow: none;
+  transform: translate(2px, 2px);
 }
 .retro-btn:disabled {
-  color: var(--w95-disabled);
-  text-shadow: 1px 1px 0 var(--w95-light);
+  color: var(--ink-dim);
+  border-color: var(--line-soft);
+  box-shadow: none;
   cursor: default;
 }
 
 .retro-input {
-  background: #ffffff;
-  border-top: 2px solid var(--w95-dark);
-  border-left: 2px solid var(--w95-dark);
-  border-bottom: 2px solid var(--w95-light);
-  border-right: 2px solid var(--w95-light);
-  color: #000000;
-  font-family: Verdana, Tahoma, Arial, sans-serif;
+  background: var(--well);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-family: var(--font-ui);
   font-size: 11px;
   padding: 3px 5px;
   outline: none;
 }
+.retro-input:focus {
+  border-color: var(--terracotta);
+  box-shadow: inset 0 -1px 0 var(--terracotta);
+}
 
 /* Fieldset-style section inside a panel */
 .retro-section {
-  border: 2px groove var(--w95-light);
+  border: 1px solid var(--line-soft);
   padding: 8px 6px 6px;
   position: relative;
   margin-top: 7px;
@@ -130,24 +183,22 @@ body {
   position: absolute;
   top: -7px;
   left: 6px;
-  background: var(--w95-face);
+  background: var(--face);
   padding: 0 4px;
   font-size: 10px;
   font-weight: bold;
-  color: #000060;
+  color: var(--terracotta);
   text-transform: uppercase;
   letter-spacing: 1px;
 }
 
-/* Dark CRT readout (chat log, counters) */
+/* Readout well (chat log, counters) */
 .crt-screen {
-  background: #001500;
-  color: var(--crt-green);
-  font-family: "Courier New", Courier, monospace;
-  border-top: 2px solid var(--w95-dark);
-  border-left: 2px solid var(--w95-dark);
-  border-bottom: 2px solid var(--w95-light);
-  border-right: 2px solid var(--w95-light);
+  background: var(--well);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  border: 1px solid var(--line);
+  box-shadow: inset 1px 1px 0 rgba(43, 37, 33, 0.12);
 }
 
 .retro-blink {
@@ -157,20 +208,22 @@ body {
   to { visibility: hidden; }
 }
 
-/* Classic chunky scrollbars where supported */
+/* Slim paper scrollbars */
 .crt-screen::-webkit-scrollbar,
 .retro-scroll::-webkit-scrollbar {
-  width: 14px;
+  width: 12px;
 }
 .crt-screen::-webkit-scrollbar-track,
 .retro-scroll::-webkit-scrollbar-track {
-  background: repeating-conic-gradient(var(--w95-face) 0% 25%, #ffffff 0% 50%) 0 0 / 4px 4px;
+  background: var(--face-alt);
+  border-left: 1px solid var(--line-soft);
 }
 .crt-screen::-webkit-scrollbar-thumb,
 .retro-scroll::-webkit-scrollbar-thumb {
-  background: var(--w95-face);
-  border-top: 2px solid var(--w95-light);
-  border-left: 2px solid var(--w95-light);
-  border-bottom: 2px solid var(--w95-dark);
-  border-right: 2px solid var(--w95-dark);
+  background: var(--peach);
+  border: 1px solid var(--line);
+}
+.crt-screen::-webkit-scrollbar-thumb:hover,
+.retro-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--terracotta);
 }

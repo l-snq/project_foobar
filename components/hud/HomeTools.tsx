@@ -28,7 +28,7 @@ export default function HomeTools({ scores, myId, onKickPlayer, onInvitePlayer }
 
       <p className="font-bold" style={{ fontSize: 10 }}>Visitors:</p>
       {visitors.length === 0 ? (
-        <p style={{ fontSize: 10, color: "#555" }}>(none right now)</p>
+        <p style={{ fontSize: 10, color: "var(--ink-dim)" }}>(none right now)</p>
       ) : (
         <div className="flex flex-col gap-1 max-h-24 overflow-y-auto retro-scroll">
           {visitors.map((s) => (

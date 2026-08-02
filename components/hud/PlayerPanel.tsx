@@ -22,12 +22,12 @@ function xpForLevel(n: number): number {
 // Chunky segmented meter, old LAN-game style.
 function BlockMeter({ filled, total, color }: { filled: number; total: number; color: string }) {
   return (
-    <div className="bevel-in flex gap-[2px] p-[3px]" style={{ background: "#111" }}>
+    <div className="bevel-in flex gap-[2px] p-[3px]" style={{ background: "var(--well)" }}>
       {Array.from({ length: total }, (_, i) => (
         <div
           key={i}
           className="h-3 flex-1"
-          style={{ background: i < filled ? color : "#2a2a2a" }}
+          style={{ background: i < filled ? color : "var(--ui-meter-track)" }}
         />
       ))}
     </div>
@@ -52,13 +52,13 @@ export default function PlayerPanel({
       <div className="retro-section">
         <span className="retro-section-label">Pilot</span>
         <p className="font-bold truncate" title={playerName}>{playerName}</p>
-        <p style={{ color: "#000080" }}>Level {level}</p>
+        <p style={{ color: "var(--ui-accent)" }}>Level {level}</p>
       </div>
 
       <div className="retro-section">
         <span className="retro-section-label">Vitals</span>
         {onRampage && (
-          <p className="retro-blink font-bold text-center" style={{ color: "#b00000", fontSize: 10 }}>
+          <p className="retro-blink font-bold text-center" style={{ color: "var(--ui-danger)", fontSize: 10 }}>
             !! RAMPAGE !!
           </p>
         )}
@@ -70,7 +70,7 @@ export default function PlayerPanel({
 
       <div className="retro-section">
         <span className="retro-section-label">Weapon</span>
-        <p className="font-bold">{weapon === "pistol" ? "PISTOL" : "FISTS"} <span className="font-normal" style={{ color: "#555" }}>[1] to swap</span></p>
+        <p className="font-bold">{weapon === "pistol" ? "PISTOL" : "FISTS"} <span className="font-normal" style={{ color: "var(--ink-dim)" }}>[1] to swap</span></p>
         {weapon === "pistol" && (
           <>
             <div className="mt-1">
@@ -78,8 +78,8 @@ export default function PlayerPanel({
             </div>
             <p className="text-center mt-1" style={{ fontFamily: "'Courier New', monospace", fontWeight: "bold" }}>
               {isReloading
-                ? <span className="retro-blink" style={{ color: "#b00000" }}>RELOADING…</span>
-                : <span style={{ color: ammo === 0 ? "#b00000" : "#000" }}>AMMO {ammo}/8 {ammo === 0 && "— [R]"}</span>}
+                ? <span className="retro-blink" style={{ color: "var(--ui-danger)" }}>RELOADING…</span>
+                : <span style={{ color: ammo === 0 ? "var(--ui-danger)" : "var(--ink)" }}>AMMO {ammo}/8 {ammo === 0 && "— [R]"}</span>}
             </p>
           </>
         )}
@@ -87,18 +87,18 @@ export default function PlayerPanel({
 
       <div className="retro-section">
         <span className="retro-section-label">Progress</span>
-        <div className="bevel-in p-[3px]" style={{ background: "#111" }}>
-          <div className="h-3" style={{ width: `${xpPct * 100}%`, background: "#1084d0" }} />
+        <div className="bevel-in p-[3px]" style={{ background: "var(--well)" }}>
+          <div className="h-3" style={{ width: `${xpPct * 100}%`, background: "var(--terracotta)" }} />
         </div>
         <p className="mt-1" style={{ fontFamily: "'Courier New', monospace" }}>
           XP {xp - xpStart}/{xpEnd - xpStart}
         </p>
-        <p style={{ fontFamily: "'Courier New', monospace", fontWeight: "bold", color: "#806000" }}>
+        <p style={{ fontFamily: "'Courier New', monospace", fontWeight: "bold", color: "var(--ui-gold)" }}>
           ¢ {currency.toLocaleString()} coins
         </p>
       </div>
 
-      <div className="retro-section" style={{ fontSize: 10, color: "#333" }}>
+      <div className="retro-section" style={{ fontSize: 10, color: "var(--ink-dim)" }}>
         <span className="retro-section-label">Controls</span>
         <p>WASD — move</p>
         <p>Click — shoot</p>

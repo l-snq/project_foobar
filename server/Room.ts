@@ -5,7 +5,7 @@ import type { WebSocket } from "ws";
 import RAPIER from "@dimforge/rapier3d-compat";
 import type {
   ClientId, PlayerState, ProjectileState, ScoreEntry,
-  ServerMessage, ClientMessage, Weapon, PlacedObject, MapConfig,
+  ServerMessage, ClientMessage, Weapon, PlacedObject, MapConfig, NpcBehavior,
 } from "./types";
 import { saveHomeMap, upsertProfile, addXpAndCurrency, loadInventory } from "./db";
 import { getStoreItem } from "./storeCache";
@@ -34,6 +34,17 @@ const RAMPAGE_KILLS = 10;
 const RAMPAGE_MAX_HEALTH = 200;
 const RAMPAGE_DAMAGE_MULT = 2;
 const USE_RADIUS = 2.5; // how close a player must be to "use" a placed object
+
+// NPC (M3) tuning
+const NPC_SPEED = 2.6;
+const NPC_DETECT_RADIUS = 9;
+const NPC_SHOOT_RANGE = 6;
+const NPC_STOP_DIST = 1.3;
+const NPC_SHOOT_COOLDOWN_MS = 1300;
+const NPC_DAMAGE = 10;
+const NPC_RADIUS = 0.4;
+const NPC_PATROL_RADIUS = 4;
+const MAX_NPCS = 30;
 
 export const MAP_DIR = join(process.cwd(), "maps");
 
@@ -69,6 +80,25 @@ interface LiveProjectile extends ProjectileState {
   age: number;
 }
 
+// A server-controlled entity. Runtime-only — spawned by spawnNPC logic, never persisted.
+interface Npc {
+  id: string;
+  url: string;
+  behavior: NpcBehavior;
+  x: number;
+  z: number;
+  rotY: number;
+  health: number;
+  maxHealth: number;
+  moving: boolean;
+  spawnX: number;
+  spawnZ: number;
+  wanderX: number;
+  wanderZ: number;
+  wanderUntil: number;
+  lastShotAt: number;
+}
+
 export class Room {
   private map: MapConfig;
   private physics: RoomPhysics;
@@ -83,6 +113,7 @@ export class Room {
   private scores = new Map<ClientId, ScoreEntry>();
   private projectiles = new Map<string, LiveProjectile>();
   private placedObjects = new Map<string, PlacedObject>();
+  private npcs = new Map<string, Npc>();
   private logic!: LogicRuntime;
   private tick = 0;
   private interval: ReturnType<typeof setInterval> | null = null;
@@ -136,6 +167,9 @@ export class Room {
   // (Re)builds the logic runtime from the current map graph. Called on construction
   // and whenever the graph is saved. Hooks reuse existing room machinery.
   private rebuildLogic() {
+    // NPCs are runtime state derived from the graph — reset them so onStart/spawnNPC
+    // repopulate cleanly on the next tick (avoids duplicates on graph edits).
+    this.clearNpcs();
     this.logic = new LogicRuntime(this.map.logic, {
       teleport: (clientId, x, z) => {
         const body = this.physics.playerBodies.get(clientId);
@@ -187,7 +221,89 @@ export class Room {
         const clamped = Math.max(80, Math.min(2000, freq));
         this.broadcast({ type: "logicEffect", effect: "sound", freq: clamped });
       },
+      spawnNpc: (url, behavior, health, x, z) => {
+        if (this.npcs.size >= MAX_NPCS) return;
+        if (typeof url !== "string" || !url.startsWith("/uploads/") ||
+            (!url.endsWith(".glb") && !url.endsWith(".gltf"))) return;
+        const cx = Math.max(-this.bounds, Math.min(this.bounds, x));
+        const cz = Math.max(-this.bounds, Math.min(this.bounds, z));
+        const hp = Math.max(1, Math.min(1000, health));
+        const id = `npc_${randomUUID()}`;
+        this.npcs.set(id, {
+          id, url, behavior,
+          x: cx, z: cz, rotY: 0,
+          health: hp, maxHealth: hp, moving: false,
+          spawnX: cx, spawnZ: cz,
+          wanderX: cx, wanderZ: cz, wanderUntil: 0,
+          lastShotAt: 0,
+        });
+        this.physics.addNpc(id, cx, cz);
+      },
     });
+  }
+
+  private clearNpcs() {
+    for (const id of this.npcs.keys()) this.physics.removeNpc(id);
+    this.npcs.clear();
+  }
+
+  // Per-tick NPC AI: pick nearest living player, move/aim per behavior, maybe shoot.
+  private updateNpcs(dt: number, now: number) {
+    for (const npc of this.npcs.values()) {
+      let target: PlayerState | null = null;
+      let bestD2 = Infinity;
+      for (const st of this.states.values()) {
+        if (st.health <= 0) continue;
+        const dx = st.x - npc.x, dz = st.z - npc.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestD2) { bestD2 = d2; target = st; }
+      }
+      const dist = target ? Math.sqrt(bestD2) : Infinity;
+
+      let mvx = 0, mvz = 0;
+      npc.moving = false;
+
+      if (npc.behavior === "idle") {
+        if (target) npc.rotY = Math.atan2(target.x - npc.x, target.z - npc.z);
+      } else if (npc.behavior === "patrol") {
+        const reached = Math.hypot(npc.wanderX - npc.x, npc.wanderZ - npc.z) < 0.3;
+        if (now >= npc.wanderUntil || reached) {
+          const ang = Math.random() * Math.PI * 2;
+          const rad = Math.random() * NPC_PATROL_RADIUS;
+          npc.wanderX = npc.spawnX + Math.cos(ang) * rad;
+          npc.wanderZ = npc.spawnZ + Math.sin(ang) * rad;
+          npc.wanderUntil = now + 3000 + Math.random() * 3000;
+        }
+        const dx = npc.wanderX - npc.x, dz = npc.wanderZ - npc.z;
+        const d = Math.hypot(dx, dz);
+        if (d > 0.15) { mvx = dx / d; mvz = dz / d; npc.rotY = Math.atan2(dx, dz); npc.moving = true; }
+      } else if (npc.behavior === "chase" || npc.behavior === "shoot") {
+        if (target && dist < NPC_DETECT_RADIUS) {
+          npc.rotY = Math.atan2(target.x - npc.x, target.z - npc.z);
+          const stopDist = npc.behavior === "shoot" ? NPC_SHOOT_RANGE * 0.8 : NPC_STOP_DIST;
+          if (dist > stopDist) {
+            mvx = (target.x - npc.x) / dist; mvz = (target.z - npc.z) / dist; npc.moving = true;
+          }
+          if (npc.behavior === "shoot" && dist < NPC_SHOOT_RANGE && now - npc.lastShotAt >= NPC_SHOOT_COOLDOWN_MS) {
+            npc.lastShotAt = now;
+            const dx = target.x - npc.x, dz = target.z - npc.z;
+            const len = Math.hypot(dx, dz) || 1;
+            const pid = randomUUID();
+            this.projectiles.set(pid, { id: pid, ownerId: npc.id, x: npc.x, z: npc.z, dirX: dx / len, dirZ: dz / len, age: 0 });
+          }
+        } else {
+          // No target in range — drift back toward spawn.
+          const dx = npc.spawnX - npc.x, dz = npc.spawnZ - npc.z;
+          const d = Math.hypot(dx, dz);
+          if (d > 0.5) { mvx = dx / d; mvz = dz / d; npc.rotY = Math.atan2(dx, dz); npc.moving = true; }
+        }
+      }
+
+      if (mvx !== 0 || mvz !== 0) {
+        const moved = this.physics.moveNpc(npc.id, mvx * NPC_SPEED * dt, mvz * NPC_SPEED * dt);
+        if (moved) { npc.x = moved.x; npc.z = moved.z; }
+      }
+    }
   }
 
   private saveMap() {
@@ -539,6 +655,9 @@ export class Room {
       });
     }
 
+    // 1b. NPC AI — decide movement/aim before stepping physics
+    this.updateNpcs(dt, Date.now());
+
     // 2. Step physics
     this.physics.world.step();
 
@@ -633,7 +752,9 @@ export class Room {
         if (Math.sqrt(dx * dx + dz * dz) < PROJECTILE_RADIUS + PLAYER_RADIUS) {
           this.projectiles.delete(pid);
           const shooterClient = this.clients.get(proj.ownerId);
-          const damage = (shooterClient?.onRampage ? RAMPAGE_DAMAGE_MULT : 1) * PISTOL_DAMAGE;
+          const damage = this.npcs.has(proj.ownerId)
+            ? NPC_DAMAGE
+            : (shooterClient?.onRampage ? RAMPAGE_DAMAGE_MULT : 1) * PISTOL_DAMAGE;
           tstate.health = Math.max(0, tstate.health - damage);
           this.broadcast({ type: "hit", targetId: tid, health: tstate.health });
 
@@ -677,6 +798,30 @@ export class Room {
           break;
         }
       }
+
+      // NPC hit detection — a surviving projectile may still strike an NPC.
+      if (this.projectiles.has(pid)) {
+        for (const [nid, npc] of this.npcs) {
+          if (proj.ownerId === nid) continue; // NPCs don't shoot themselves
+          const dx = proj.x - npc.x;
+          const dz = proj.z - npc.z;
+          if (Math.sqrt(dx * dx + dz * dz) < PROJECTILE_RADIUS + NPC_RADIUS) {
+            this.projectiles.delete(pid);
+            const shooterClient = this.clients.get(proj.ownerId);
+            const damage = this.npcs.has(proj.ownerId)
+              ? NPC_DAMAGE
+              : (shooterClient?.onRampage ? RAMPAGE_DAMAGE_MULT : 1) * PISTOL_DAMAGE;
+            npc.health = Math.max(0, npc.health - damage);
+            if (npc.health <= 0) {
+              this.physics.removeNpc(nid);
+              this.npcs.delete(nid);
+              const killerId = this.clients.has(proj.ownerId) ? proj.ownerId : undefined;
+              this.logic.onNpcKilled(killerId);
+            }
+            break;
+          }
+        }
+      }
     }
 
     if (this.tick % XP_FLUSH_TICKS === 0) {
@@ -691,6 +836,9 @@ export class Room {
         ({ id, ownerId, x, z, dirX, dirZ }) => ({ id, ownerId, x, z, dirX, dirZ }),
       ),
       scores: Array.from(this.scores.values()),
+      npcs: Array.from(this.npcs.values()).map(
+        (n) => ({ id: n.id, url: n.url, x: n.x, y: 0, z: n.z, rotY: n.rotY, health: n.health, maxHealth: n.maxHealth, moving: n.moving }),
+      ),
     });
   }
 

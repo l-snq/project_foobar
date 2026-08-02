@@ -28,12 +28,12 @@ export default function ChatBar({
         className="crt-screen flex-1 min-h-0 overflow-y-auto px-2 py-1"
         style={{ fontSize: 11, lineHeight: "15px" }}
       >
-        <div style={{ color: "#00aa44" }}>*** Welcome to club2k. Type /home or /hub to travel. ***</div>
+        <div style={{ color: "var(--sage)" }}>*** Welcome to club2k. Type /home or /hub to travel. ***</div>
         {chatMessages.map((m) => (
           <div key={m.id}>
             {m.fromName === "System"
               ? <span style={{ color: "var(--crt-amber)" }}>*** {m.text}</span>
-              : <><span style={{ color: "#66ffff" }}>&lt;{m.fromName}&gt;</span> {m.text}</>}
+              : <><span style={{ color: "var(--terracotta)" }}>&lt;{m.fromName}&gt;</span> {m.text}</>}
           </div>
         ))}
       </div>

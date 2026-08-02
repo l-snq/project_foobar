@@ -137,14 +137,15 @@ export default function AdminStorePanel({ userId }: Props) {
           style={{ background: "rgba(0,0,0,0.4)" }}
         >
           <div className="bevel-out flex flex-col w-[440px] max-h-[80vh] p-0.5">
-            <div className="retro-titlebar flex items-center justify-between px-2 py-1 shrink-0">
-              <span>🔧 STORE ADMINISTRATION</span>
+            <div className="retro-titlebar flex items-center gap-1.5 px-1.5 py-1 shrink-0">
+              <span className="retro-titlebar-glyph">⌄</span>
+              <span className="retro-titlebar-glyph">□</span>
+              <span className="flex-1 text-center">store administration</span>
               <button
-                className="retro-btn font-bold"
-                style={{ padding: "0px 5px", fontSize: 11 }}
+                className="retro-titlebar-glyph"
                 onClick={() => { setOpen(false); resetAdd(); }}
               >
-                ✕
+                ×
               </button>
             </div>
 
@@ -210,8 +211,8 @@ export default function AdminStorePanel({ userId }: Props) {
                     <input ref={thumbRef} type="file" accept="image/*" style={{ fontSize: 10 }} />
                   </div>
 
-                  {errorMsg && <p style={{ fontSize: 10, color: "#b00000" }}>⚠ {errorMsg}</p>}
-                  {status === "success" && <p className="font-bold" style={{ fontSize: 10, color: "#006000" }}>Item added successfully.</p>}
+                  {errorMsg && <p style={{ fontSize: 10, color: "var(--ui-danger)" }}>⚠ {errorMsg}</p>}
+                  {status === "success" && <p className="font-bold" style={{ fontSize: 10, color: "var(--ui-success)" }}>Item added successfully.</p>}
 
                   <button
                     type="submit"
@@ -225,31 +226,31 @@ export default function AdminStorePanel({ userId }: Props) {
 
               {/* Manage tab */}
               {tab === "manage" && (
-                <div className="bevel-in flex flex-col gap-1 overflow-y-auto retro-scroll max-h-96 p-1.5" style={{ background: "#fff" }}>
+                <div className="bevel-in flex flex-col gap-1 overflow-y-auto retro-scroll max-h-96 p-1.5" style={{ background: "var(--well)" }}>
                   {manageLoading && (
                     <p className="text-center py-6" style={{ fontSize: 11 }}>Loading<span className="retro-blink">…</span></p>
                   )}
                   {!manageLoading && manageItems.length === 0 && (
-                    <p className="text-center py-6" style={{ fontSize: 11, color: "#555" }}>No items in the store.</p>
+                    <p className="text-center py-6" style={{ fontSize: 11, color: "var(--ink-dim)" }}>No items in the store.</p>
                   )}
                   {manageItems.map((item) => (
                     <div key={item.id} className="bevel-out flex items-center gap-2 px-2 py-1">
-                      <div className="bevel-in w-9 h-9 shrink-0 flex items-center justify-center overflow-hidden" style={{ background: "#dfdfdf" }}>
+                      <div className="bevel-in w-9 h-9 shrink-0 flex items-center justify-center overflow-hidden" style={{ background: "var(--well-alt)" }}>
                         {item.thumbnail_url
                           ? <img src={item.thumbnail_url} alt={item.name} className="w-full h-full object-contain" />
-                          : <span style={{ color: "#888" }}>?</span>
+                          : <span style={{ color: "var(--ink-dim)" }}>?</span>
                         }
                       </div>
                       <div className="flex flex-col flex-1 min-w-0">
                         <span className="font-bold truncate" style={{ fontSize: 10 }}>{item.name}</span>
-                        <span style={{ fontSize: 9, color: "#555" }}>
+                        <span style={{ fontSize: 9, color: "var(--ink-dim)" }}>
                           {item.category} · ¢{item.price.toLocaleString()}
                         </span>
                       </div>
                       <button
                         disabled={deleting === item.id}
                         className="retro-btn shrink-0 font-bold"
-                        style={{ fontSize: 9, color: "#b00000" }}
+                        style={{ fontSize: 9, color: "var(--ui-danger)" }}
                         onClick={() => handleDelete(item.id)}
                       >
                         {deleting === item.id ? "…" : "DELETE"}

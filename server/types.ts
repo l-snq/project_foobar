@@ -77,6 +77,8 @@ export type LogicNodeKind =
   | "objectShot"   // trigger: pulse when {objectId} is hit by a projectile (ctx = shooter)
   | "objectUsed"   // trigger: pulse when a player presses Use near {objectId} (ctx = user)
   | "timer"        // trigger: pulse autonomously every {period} seconds (no player ctx)
+  | "onStart"      // trigger: pulse once when the room's logic graph initializes
+  | "npcKilled"    // trigger: pulse when any logic-spawned NPC dies (ctx = killer if a player)
   | "counter"      // logic: count pulses, fire onward every {threshold} pulses
   | "delay"        // logic: re-fire the pulse {seconds} later, preserving player ctx
   | "once"         // logic: pass the first pulse only, then block until graph reload
@@ -85,7 +87,8 @@ export type LogicNodeKind =
   | "setVisible"   // action: show/hide a placed object for everyone
   | "giveReward"   // action: grant {xp, currency} to the triggering player
   | "showMessage"  // action: toast {text} to the triggering player (or everyone if no ctx)
-  | "playSound";   // action: play a short {freq}Hz blip for everyone
+  | "playSound"    // action: play a short {freq}Hz blip for everyone
+  | "spawnNPC";    // action: spawn an NPC ({url, behavior, health, x, z})
 
 export interface LogicNode {
   id: string;
@@ -167,6 +170,21 @@ export interface ProjectileState {
   dirZ: number;
 }
 
+export type NpcBehavior = "idle" | "patrol" | "chase" | "shoot";
+
+// A server-controlled entity, spawned at runtime by a spawnNPC logic action.
+export interface NpcState {
+  id: string;
+  url: string;       // GLB model, same convention as placed objects
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  health: number;
+  maxHealth: number;
+  moving: boolean;
+}
+
 // Client → Server
 export type ClientMessage =
   | { type: "join"; name: string; userId: string; token: string }
@@ -195,7 +213,7 @@ export interface ScoreEntry {
 // Server → Client
 export type ServerMessage =
   | { type: "handshake"; yourId: ClientId; tick: number; map: MapConfig }
-  | { type: "snapshot"; tick: number; players: PlayerState[]; projectiles: ProjectileState[]; scores: ScoreEntry[] }
+  | { type: "snapshot"; tick: number; players: PlayerState[]; projectiles: ProjectileState[]; scores: ScoreEntry[]; npcs: NpcState[] }
   | { type: "playerLeft"; id: ClientId }
   | { type: "hit"; targetId: ClientId; health: number }
   | { type: "died"; targetId: ClientId }

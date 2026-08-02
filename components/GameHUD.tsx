@@ -143,7 +143,7 @@ export default function GameHUD({
           className="bevel-in relative overflow-hidden min-h-0 min-w-0"
           style={{
             gridArea: "view",
-            background: "linear-gradient(180deg, #0a3d8f 0%, #3b9fef 50%, #d4eeff 100%)",
+            background: "linear-gradient(180deg, var(--terracotta) 0%, var(--peach) 45%, #f6e3c8 100%)",
             cursor: weapon === "pistol" && !isDead ? "none" : "default",
           }}
         >

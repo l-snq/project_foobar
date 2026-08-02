@@ -15,6 +15,7 @@ import { LocalCharacter } from "./LocalCharacter";
 import { ClientPhysics } from "./game/ClientPhysics";
 import { MapView } from "./game/MapView";
 import { LogicView } from "./game/LogicView";
+import { NpcView } from "./game/NpcView";
 import { PlacedObjects, type SelectedObjectInfo } from "./game/PlacedObjects";
 import { RemotePlayers } from "./game/RemotePlayers";
 import { Projectiles } from "./game/Projectiles";
@@ -159,6 +160,7 @@ export default function GameCanvas({ playerName, userId, onSignOut }: Props) {
     const remotes = new RemotePlayers(scene, character);
     const projectiles = new Projectiles(scene);
     const explosions = new Explosions(scene);
+    const npcView = new NpcView(scene, loader, (x, y, z) => explosions.spawn(x, y, z));
     const physics: ClientPhysics = new ClientPhysics(() => placed.allData());
     const placed: PlacedObjects = new PlacedObjects({
       scene,
@@ -438,6 +440,7 @@ export default function GameCanvas({ playerName, userId, onSignOut }: Props) {
           }
           remotes.removeAbsent(seen);
           projectiles.sync(msg.projectiles);
+          npcView.sync(msg.npcs);
           setScores(msg.scores);
           break;
         }
@@ -625,6 +628,7 @@ export default function GameCanvas({ playerName, userId, onSignOut }: Props) {
 
       remotes.update(dt, camera);
       explosions.update(dt);
+      npcView.update(dt);
       placed.update(dt, keys.q, keys.e, raycaster, mouse, camera, groundPlane);
       floorPainter.update(raycaster, mouse, camera, groundPlane);
 
@@ -675,6 +679,7 @@ export default function GameCanvas({ playerName, userId, onSignOut }: Props) {
       remotes.dispose();
       projectiles.dispose();
       explosions.dispose();
+      npcView.dispose();
       placed.dispose();
       placedRef.current = null;
       mapView.dispose();

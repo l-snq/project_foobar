@@ -1,4 +1,4 @@
-import type { ClientId, LogicGraph, LogicNode, PlayerState } from "./types";
+import type { ClientId, LogicGraph, LogicNode, NpcBehavior, PlayerState } from "./types";
 
 // Must match Room's TICK_RATE — used to convert timer/delay seconds into ticks.
 const TICK_HZ = 20;
@@ -13,6 +13,7 @@ export interface LogicHooks {
   giveReward(clientId: ClientId, xp: number, currency: number): void;
   showMessage(clientId: ClientId | undefined, text: string): void;
   playSound(freq: number): void;
+  spawnNpc(url: string, behavior: NpcBehavior, health: number, x: number, z: number): void;
 }
 
 // Context carried along a pulse. `clientId` is the player who triggered the chain
@@ -43,6 +44,7 @@ export class LogicRuntime {
   private onceFired = new Set<string>(); // `once` nodeIds that have already passed a pulse
   private scheduled: { fireTick: number; nodeId: string; ctx: PulseContext }[] = []; // pending delays
   private internalTick = 0;
+  private started = false;
 
   constructor(graph: LogicGraph | undefined, private readonly hooks: LogicHooks) {
     if (!graph) return;
@@ -64,6 +66,14 @@ export class LogicRuntime {
   evaluate(states: Map<ClientId, PlayerState>): void {
     if (this.nodesById.size === 0) return;
     this.internalTick++;
+
+    // onStart: fire once on the first evaluated tick after (re)build.
+    if (!this.started) {
+      this.started = true;
+      for (const node of this.nodesById.values()) {
+        if (node.kind === "onStart") this.propagate(node.id, {});
+      }
+    }
 
     // Due delays.
     if (this.scheduled.length > 0) {
@@ -126,6 +136,13 @@ export class LogicRuntime {
   /** External event: a player pressed Use near a placed object (ctx = user). */
   onObjectUsed(objectId: string, userId: ClientId): void {
     this.fireObjectTrigger("objectUsed", objectId, userId);
+  }
+
+  /** External event: a logic-spawned NPC died (ctx = killer if a player). */
+  onNpcKilled(killerId?: ClientId): void {
+    for (const node of this.nodesById.values()) {
+      if (node.kind === "npcKilled") this.propagate(node.id, { clientId: killerId });
+    }
   }
 
   private fireObjectTrigger(kind: "objectShot" | "objectUsed", objectId: string, clientId: ClientId): void {
@@ -193,6 +210,12 @@ export class LogicRuntime {
       case "playSound":
         this.hooks.playSound(num(node.params.freq, 440));
         break;
+      case "spawnNPC": {
+        const behavior = (["idle", "patrol", "chase", "shoot"].includes(String(node.params.behavior))
+          ? node.params.behavior : "idle") as NpcBehavior;
+        this.hooks.spawnNpc(String(node.params.url ?? ""), behavior, num(node.params.health, 50), num(node.params.x), num(node.params.z));
+        break;
+      }
     }
 
     for (const next of this.adjacency.get(node.id) ?? []) {

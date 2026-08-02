@@ -94,9 +94,9 @@ export default function AuthScreen() {
         className="font-bold text-center"
         style={{
           fontSize: 42,
-          fontFamily: "'Courier New', monospace",
-          color: "var(--crt-green)",
-          textShadow: "0 0 8px rgba(0,255,100,0.7), 3px 3px 0 #003020",
+          fontFamily: "var(--font-title)",
+          color: "var(--terracotta)",
+          textShadow: "3px 3px 0 var(--peach)",
           letterSpacing: 4,
         }}
       >
@@ -105,9 +105,11 @@ export default function AuthScreen() {
 
       {/* Login dialog */}
       <div className="bevel-out p-0.5" style={{ width: 340 }}>
-        <div className="retro-titlebar flex items-center justify-between px-2 py-1">
-          <span>🔑 CONNECT TO CLUB2K</span>
-          <span>—</span>
+        <div className="retro-titlebar flex items-center gap-1.5 px-1.5 py-1">
+          <span className="retro-titlebar-glyph">⌄</span>
+          <span className="retro-titlebar-glyph">□</span>
+          <span className="flex-1 text-center">connect to club2k</span>
+          <span className="retro-titlebar-glyph">×</span>
         </div>
 
         <div className="p-3 flex flex-col gap-3" style={{ fontSize: 11 }}>
@@ -151,7 +153,7 @@ export default function AuthScreen() {
                   onChange={(e) => setSiPassword(e.target.value)}
                 />
               </div>
-              {siError && <p style={{ fontSize: 10, color: "#b00000" }}>⚠ {siError}</p>}
+              {siError && <p style={{ fontSize: 10, color: "var(--ui-danger)" }}>⚠ {siError}</p>}
               <button type="submit" disabled={siLoading} className="retro-btn font-bold py-1.5 mt-1">
                 {siLoading ? "CONNECTING…" : "▶ ENTER WORLD"}
               </button>
@@ -203,14 +205,14 @@ export default function AuthScreen() {
                     />
                     <span style={{ fontSize: 11, width: 14 }}>
                       {usernameStatus === "checking" && "…"}
-                      {usernameStatus === "available" && <span style={{ color: "#006000", fontWeight: "bold" }}>✓</span>}
-                      {(usernameStatus === "taken" || usernameStatus === "invalid") && <span style={{ color: "#b00000", fontWeight: "bold" }}>✗</span>}
+                      {usernameStatus === "available" && <span style={{ color: "var(--ui-success)", fontWeight: "bold" }}>✓</span>}
+                      {(usernameStatus === "taken" || usernameStatus === "invalid") && <span style={{ color: "var(--ui-danger)", fontWeight: "bold" }}>✗</span>}
                     </span>
                   </div>
                 </div>
-                {usernameStatus === "taken" && <p style={{ fontSize: 10, color: "#b00000" }}>⚠ Username is already taken</p>}
-                {usernameStatus === "invalid" && <p style={{ fontSize: 10, color: "#b00000" }}>⚠ 2–24 characters, letters/numbers/underscores only</p>}
-                {suError && <p style={{ fontSize: 10, color: "#b00000" }}>⚠ {suError}</p>}
+                {usernameStatus === "taken" && <p style={{ fontSize: 10, color: "var(--ui-danger)" }}>⚠ Username is already taken</p>}
+                {usernameStatus === "invalid" && <p style={{ fontSize: 10, color: "var(--ui-danger)" }}>⚠ 2–24 characters, letters/numbers/underscores only</p>}
+                {suError && <p style={{ fontSize: 10, color: "var(--ui-danger)" }}>⚠ {suError}</p>}
                 <button
                   type="submit"
                   disabled={suLoading || usernameStatus !== "available"}
@@ -225,10 +227,10 @@ export default function AuthScreen() {
       </div>
 
       {/* Neocities-style footer */}
-      <div className="text-center" style={{ fontSize: 10, color: "#3fae8a", fontFamily: "'Courier New', monospace" }}>
+      <div className="text-center" style={{ fontSize: 10, color: "var(--ink-dim)", fontFamily: "'Courier New', monospace" }}>
         <p>best viewed at 1024×768 · 16-bit colour</p>
         <p>
-          you are visitor № <span className="bevel-in px-1" style={{ background: "#000", color: "var(--crt-green)" }}>0042817</span>
+          you are visitor № <span className="bevel-in px-1" style={{ background: "var(--ink)", color: "var(--peach)" }}>0042817</span>
           {" "}· est. 2000 <span className="retro-blink">_</span>
         </p>
       </div>

@@ -49,7 +49,7 @@ export default function ViewportOverlays({
       {/* Rampage banner */}
       {rampageAnnouncement && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none z-30">
-          <div className="bevel-out px-4 py-1.5 font-bold retro-blink" style={{ color: "#b00000", fontSize: 13 }}>
+          <div className="bevel-out px-4 py-1.5 font-bold retro-blink" style={{ color: "var(--ui-danger)", fontSize: 13 }}>
             {rampageAnnouncement.replace(/🔥/g, "!!")}
           </div>
         </div>
@@ -58,7 +58,7 @@ export default function ViewportOverlays({
       {/* Level-up toast */}
       {levelUpMsg && (
         <div className="absolute top-12 left-1/2 -translate-x-1/2 pointer-events-none z-30">
-          <div className="bevel-out px-4 py-1.5 font-bold" style={{ color: "#000080", fontSize: 12 }}>
+          <div className="bevel-out px-4 py-1.5 font-bold" style={{ color: "var(--ui-accent)", fontSize: 12 }}>
             ★ {levelUpMsg} ★
           </div>
         </div>
@@ -67,7 +67,7 @@ export default function ViewportOverlays({
       {/* Logic message toast (from a showMessage node) */}
       {logicMessage && (
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 pointer-events-none z-30">
-          <div className="bevel-out px-5 py-2 font-bold text-center" style={{ color: "#004000", fontSize: 15, maxWidth: 360 }}>
+          <div className="bevel-out px-5 py-2 font-bold text-center" style={{ color: "var(--ui-success)", fontSize: 15, maxWidth: 360 }}>
             {logicMessage}
           </div>
         </div>
@@ -77,7 +77,7 @@ export default function ViewportOverlays({
       {inEditMode && (
         <div
           className="absolute top-0 inset-x-0 text-center font-bold pointer-events-none z-20 py-0.5"
-          style={{ background: "#806000", color: "#ffe080", fontSize: 10, letterSpacing: 1 }}
+          style={{ background: "var(--ui-gold)", color: "var(--well)", fontSize: 10, letterSpacing: 1 }}
         >
           EDIT MODE — click to select · drag gizmo to move · Del to delete · [2] to exit
         </div>
@@ -85,7 +85,7 @@ export default function ViewportOverlays({
       {inPlacementMode && (
         <div
           className="absolute top-0 inset-x-0 flex items-center justify-center gap-3 z-20 py-0.5"
-          style={{ background: "#004000", color: "#a0ffb8", fontSize: 10, letterSpacing: 1 }}
+          style={{ background: "var(--ui-success)", color: "var(--well)", fontSize: 10, letterSpacing: 1 }}
         >
           <span className="font-bold">PLACEMENT — click to place · Q/E rotate · Esc cancel</span>
           <button className="retro-btn pointer-events-auto" style={{ fontSize: 9, padding: "1px 5px" }} onClick={onExitPlacement}>
@@ -98,10 +98,13 @@ export default function ViewportOverlays({
       {emoteWheelOpen && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
           <div className="bevel-out p-0.5" style={{ minWidth: 160 }}>
-            <div className="retro-titlebar px-2 py-0.5">EMOTE</div>
+            <div className="retro-titlebar flex items-center gap-1.5 px-1.5 py-0.5">
+              <span className="retro-titlebar-glyph">⌄</span>
+              <span className="flex-1 text-center">emote</span>
+            </div>
             <div className="p-2 flex flex-col gap-1" style={{ fontSize: 11 }}>
-              <p><b className="bevel-in px-1.5" style={{ background: "#fff" }}>1</b> Dance</p>
-              <p><b className="bevel-in px-1.5" style={{ background: "#fff" }}>2</b> Breakdance</p>
+              <p><b className="bevel-in px-1.5" style={{ background: "var(--well)" }}>1</b> Dance</p>
+              <p><b className="bevel-in px-1.5" style={{ background: "var(--well)" }}>2</b> Breakdance</p>
             </div>
           </div>
         </div>
@@ -111,14 +114,15 @@ export default function ViewportOverlays({
       {isDead && (
         <div className="absolute inset-0 flex items-center justify-center z-40" style={{ background: "rgba(0,0,0,0.45)" }}>
           <div className="bevel-out p-0.5" style={{ minWidth: 260 }}>
-            <div className="retro-titlebar px-2 py-0.5 flex items-center justify-between">
-              <span>FATAL ERROR</span>
-              <span>✕</span>
+            <div className="retro-titlebar flex items-center gap-1.5 px-1.5 py-0.5">
+              <span className="retro-titlebar-glyph">⌄</span>
+              <span className="flex-1 text-center">fatal error</span>
+              <span className="retro-titlebar-glyph">×</span>
             </div>
             <div className="p-4 flex items-center gap-3">
               <span style={{ fontSize: 28 }}>💀</span>
               <div>
-                <p className="font-bold" style={{ fontSize: 13, color: "#b00000" }}>YOU DIED</p>
+                <p className="font-bold" style={{ fontSize: 13, color: "var(--ui-danger)" }}>YOU DIED</p>
                 <p style={{ fontSize: 11 }}>Respawning<span className="retro-blink">…</span></p>
               </div>
             </div>

@@ -13,7 +13,7 @@ export default function Scoreboard({ scores, myId }: Props) {
       <span className="retro-section-label">Players online</span>
       <table className="w-full" style={{ fontSize: 10, fontFamily: "'Courier New', monospace" }}>
         <thead>
-          <tr style={{ color: "#000060" }}>
+          <tr style={{ color: "var(--ui-accent)" }}>
             <th className="text-left font-bold">NAME</th>
             <th className="text-right font-bold w-7">K</th>
             <th className="text-right font-bold w-7">D</th>
@@ -23,7 +23,7 @@ export default function Scoreboard({ scores, myId }: Props) {
           {[...scores]
             .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
             .map((s) => (
-              <tr key={s.id} style={{ background: s.id === myId ? "#000080" : "transparent", color: s.id === myId ? "#fff" : "#000" }}>
+              <tr key={s.id} style={{ background: s.id === myId ? "var(--ui-accent)" : "transparent", color: s.id === myId ? "var(--well)" : "var(--ink)" }}>
                 <td className="truncate max-w-0" style={{ width: "100%" }}>{s.id === myId ? "» " : ""}{s.name}</td>
                 <td className="text-right">{s.kills}</td>
                 <td className="text-right">{s.deaths}</td>

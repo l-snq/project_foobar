@@ -23,7 +23,7 @@ function Slider({ label, min, max, step, value, onChange }: {
         type="range" min={min} max={max} step={step}
         value={value}
         className="w-full"
-        style={{ accentColor: "#000080" }}
+        style={{ accentColor: "var(--ui-accent)" }}
         onChange={(e) => onChange(parseFloat(e.target.value))}
       />
     </div>
@@ -91,7 +91,7 @@ export default function ObjectEditPanel({ selected, onChange, onDelete }: Props)
 
       <button
         className="retro-btn w-full mt-2 font-bold"
-        style={{ color: "#b00000" }}
+        style={{ color: "var(--ui-danger)" }}
         onClick={() => onDelete(selected.id)}
       >
         DELETE OBJECT

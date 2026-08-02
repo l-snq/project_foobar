@@ -65,28 +65,30 @@ export default function StoreOverlay({ open, currency, onClose, onPurchaseComple
     >
       <div className="bevel-out flex flex-col w-[620px] max-h-[80vh] p-0.5">
         {/* Title bar */}
-        <div className="retro-titlebar flex items-center justify-between px-2 py-1 shrink-0">
-          <span>🛒 CLUB2K ITEM SHOP</span>
-          <button className="retro-btn font-bold" style={{ padding: "0px 5px", fontSize: 11 }} onClick={onClose} title="Close [B]">
-            ✕
+        <div className="retro-titlebar flex items-center gap-1.5 px-1.5 py-1 shrink-0">
+          <span className="retro-titlebar-glyph">⌄</span>
+          <span className="retro-titlebar-glyph">□</span>
+          <span className="flex-1 text-center">club2k item shop</span>
+          <button className="retro-titlebar-glyph" onClick={onClose} title="Close [B]">
+            ×
           </button>
         </div>
 
         {/* Balance strip */}
-        <div className="bevel-in mx-1 mt-1 px-2 py-1 flex justify-between" style={{ fontSize: 11, background: "#fff" }}>
+        <div className="bevel-in mx-1 mt-1 px-2 py-1 flex justify-between" style={{ fontSize: 11, background: "var(--well)" }}>
           <span>Double-click nothing — single clicks only, it&apos;s {new Date().getFullYear()}.</span>
-          <span className="font-bold" style={{ fontFamily: "'Courier New', monospace", color: "#806000" }}>
+          <span className="font-bold" style={{ fontFamily: "'Courier New', monospace", color: "var(--ui-gold)" }}>
             BALANCE: ¢{currency.toLocaleString()}
           </span>
         </div>
 
         {/* Grid */}
-        <div className="overflow-y-auto retro-scroll p-2 m-1 bevel-in" style={{ background: "#fff" }}>
+        <div className="overflow-y-auto retro-scroll p-2 m-1 bevel-in" style={{ background: "var(--well)" }}>
           {loading && (
             <p className="text-center py-8" style={{ fontSize: 11 }}>Loading catalogue<span className="retro-blink">…</span></p>
           )}
           {items?.length === 0 && (
-            <p className="text-center py-8" style={{ fontSize: 11, color: "#555" }}>No items in the store yet.</p>
+            <p className="text-center py-8" style={{ fontSize: 11, color: "var(--ink-dim)" }}>No items in the store yet.</p>
           )}
           <div className="grid grid-cols-4 gap-2">
             {(items ?? []).map((item) => {
@@ -95,18 +97,18 @@ export default function StoreOverlay({ open, currency, onClose, onPurchaseComple
               const canAfford = currency >= item.price;
               return (
                 <div key={item.id} className="bevel-out flex flex-col gap-1 p-1.5">
-                  <div className="bevel-in w-full aspect-square flex items-center justify-center" style={{ background: "#dfdfdf" }}>
+                  <div className="bevel-in w-full aspect-square flex items-center justify-center" style={{ background: "var(--well-alt)" }}>
                     {item.thumbnail_url
                       ? <img src={item.thumbnail_url} alt={item.name} className="w-full h-full object-contain" />
-                      : <span style={{ color: "#888", fontSize: 18 }}>?</span>
+                      : <span style={{ color: "var(--ink-dim)", fontSize: 18 }}>?</span>
                     }
                   </div>
 
                   <p className="font-bold leading-tight truncate" style={{ fontSize: 10 }} title={item.name}>{item.name}</p>
-                  <p style={{ fontSize: 9, color: "#555" }}>{item.category}</p>
+                  <p style={{ fontSize: 9, color: "var(--ink-dim)" }}>{item.category}</p>
 
                   {fb && (
-                    <p className="font-bold" style={{ fontSize: 9, color: fb.ok ? "#006000" : "#b00000" }}>{fb.msg}</p>
+                    <p className="font-bold" style={{ fontSize: 9, color: fb.ok ? "var(--ui-success)" : "var(--ui-danger)" }}>{fb.msg}</p>
                   )}
 
                   <button

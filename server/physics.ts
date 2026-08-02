@@ -10,6 +10,9 @@ export class RoomPhysics {
   playerColliders = new Map<ClientId, RAPIER.Collider>();
   controllers = new Map<ClientId, RAPIER.KinematicCharacterController>();
   placedBodies = new Map<string, RAPIER.RigidBody[]>();
+  npcBodies = new Map<string, RAPIER.RigidBody>();
+  npcColliders = new Map<string, RAPIER.Collider>();
+  npcControllers = new Map<string, RAPIER.KinematicCharacterController>();
   // Reverse lookup for projectile hits: collider handle → placed-object id.
   private colliderToObject = new Map<number, string>();
   private placedColliderHandles = new Map<string, number[]>();
@@ -119,6 +122,53 @@ export class RoomPhysics {
     this.controllers.set(id, controller);
   }
 
+  // NPCs use the same kinematic-body + character-controller pattern as players,
+  // so they collide-and-slide against walls, placed objects and players.
+  addNpc(id: string, x: number, z: number): void {
+    const controller = this.world.createCharacterController(0.01);
+    controller.setSlideEnabled(true);
+    controller.setApplyImpulsesToDynamicBodies(false);
+    const body = this.world.createRigidBody(
+      RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(x, 0, z),
+    );
+    const collider = this.world.createCollider(
+      RAPIER.ColliderDesc.cylinder(PLAYER_HALF_HEIGHT, PLAYER_RADIUS),
+      body,
+    );
+    this.npcBodies.set(id, body);
+    this.npcColliders.set(id, collider);
+    this.npcControllers.set(id, controller);
+  }
+
+  removeNpc(id: string): void {
+    const controller = this.npcControllers.get(id);
+    if (controller) {
+      this.world.removeCharacterController(controller);
+      this.npcControllers.delete(id);
+    }
+    const body = this.npcBodies.get(id);
+    if (body) {
+      this.world.removeRigidBody(body);
+      this.npcBodies.delete(id);
+      this.npcColliders.delete(id);
+    }
+  }
+
+  // Collide-and-slide an NPC by a desired delta; returns its new position.
+  moveNpc(id: string, dx: number, dz: number): { x: number; z: number } | null {
+    const body = this.npcBodies.get(id);
+    const collider = this.npcColliders.get(id);
+    const controller = this.npcControllers.get(id);
+    if (!body || !collider || !controller) return null;
+    controller.computeColliderMovement(collider, { x: dx, y: 0, z: dz });
+    const mv = controller.computedMovement();
+    const pos = body.translation();
+    const nx = pos.x + mv.x;
+    const nz = pos.z + mv.z;
+    body.setNextKinematicTranslation({ x: nx, y: 0, z: nz });
+    return { x: nx, z: nz };
+  }
+
   removePlayer(id: ClientId): void {
     const controller = this.controllers.get(id);
     if (controller) {
@@ -141,6 +191,9 @@ export class RoomPhysics {
     this.playerBodies.clear();
     this.playerColliders.clear();
     this.placedBodies.clear();
+    this.npcBodies.clear();
+    this.npcColliders.clear();
+    this.npcControllers.clear();
     this.colliderToObject.clear();
     this.placedColliderHandles.clear();
     this.world = this._buildWorld(map);
